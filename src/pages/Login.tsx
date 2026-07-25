@@ -76,40 +76,40 @@ function BrandPanel() {
 
       {/* 品牌 */}
       <div className="relative flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/15 shadow-lg ring-1 ring-white/30 backdrop-blur">
-          <Boxes className="h-6 w-6" strokeWidth={1.8} />
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/15 shadow-lg ring-1 ring-white/30 backdrop-blur">
+          <Boxes className="h-7 w-7" strokeWidth={1.8} />
         </div>
         <div>
-          <div className="text-lg font-bold tracking-wide">CLINI X TRIALS</div>
-          <div className="text-xs tracking-widest text-white/70">临床研究运营平台</div>
+          <div className="text-xl font-bold tracking-wide">CLINI X TRIALS</div>
+          <div className="text-sm tracking-widest text-white/70">临床研究运营平台</div>
         </div>
       </div>
 
       {/* 主标语 + 价值点 */}
-      <div className="relative max-w-lg">
-        <h1 className="text-4xl leading-snug font-bold tracking-wide xl:text-[2.75rem]">
+      <div className="relative max-w-xl">
+        <h1 className="text-5xl leading-snug font-bold tracking-wide xl:text-[3.5rem]">
           以智能科技
           <br />
           赋能科研创新
         </h1>
-        <p className="mt-4 flex items-center gap-3 text-xl font-light tracking-[0.3em] text-cyan-100">
+        <p className="mt-5 flex items-center gap-3 text-2xl font-light tracking-[0.3em] text-cyan-100">
           <span className="inline-block h-px w-10 bg-cyan-200/70" />
           让研究轻松前行
         </p>
 
-        <ul className="mt-12 space-y-5">
+        <ul className="mt-14 space-y-6">
           {features.map(({ icon: Icon, title, desc }, i) => (
             <li
               key={title}
               className="login-fade-up flex items-center gap-4"
               style={{ animationDelay: `${0.15 + i * 0.12}s` }}
             >
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/12 ring-1 ring-white/25 backdrop-blur">
-                <Icon className="h-5 w-5" strokeWidth={1.8} />
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-white/12 ring-1 ring-white/25 backdrop-blur">
+                <Icon className="h-[22px] w-[22px]" strokeWidth={1.8} />
               </div>
               <div>
-                <div className="text-[15px] font-medium">{title}</div>
-                <div className="mt-0.5 text-xs text-white/65">{desc}</div>
+                <div className="text-base font-medium">{title}</div>
+                <div className="mt-1 text-sm text-white/65">{desc}</div>
               </div>
             </li>
           ))}
@@ -121,9 +121,9 @@ function BrandPanel() {
         {compliance.map((c) => (
           <span
             key={c}
-            className="flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-1.5 text-xs tracking-wide ring-1 ring-white/20 backdrop-blur"
+            className="flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-2 text-sm tracking-wide ring-1 ring-white/20 backdrop-blur"
           >
-            <BadgeCheck className="h-3.5 w-3.5 text-cyan-200" />
+            <BadgeCheck className="h-4 w-4 text-cyan-200" />
             {c}
           </span>
         ))}
@@ -147,23 +147,23 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1.5 block text-[13px] font-medium text-gray-600">{label}</label>
+      <label className="mb-2 block text-sm font-medium text-gray-600">{label}</label>
       <div
         className={cn(
-          'group flex items-center gap-2.5 rounded-xl border bg-gray-50/60 px-3.5 transition-all focus-within:border-teal-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-teal-500/10',
+          'group flex items-center gap-3 rounded-xl border bg-gray-50/60 px-4 transition-all focus-within:border-teal-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-teal-500/10',
           error ? 'border-red-300' : 'border-gray-200 hover:border-gray-300',
         )}
       >
-        <Icon className="h-[18px] w-[18px] shrink-0 text-gray-400 transition-colors group-focus-within:text-teal-500" />
+        <Icon className="h-5 w-5 shrink-0 text-gray-400 transition-colors group-focus-within:text-teal-500" />
         {children}
       </div>
-      {error && <p className="mt-1.5 text-xs text-red-500">{error}</p>}
+      {error && <p className="mt-1.5 text-[13px] text-red-500">{error}</p>}
     </div>
   )
 }
 
 const inputCls =
-  'h-11 w-full bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400'
+  'h-12 w-full bg-transparent text-base text-gray-800 outline-none placeholder:text-gray-400'
 
 /* ---------------- 登录页 ---------------- */
 
@@ -255,23 +255,23 @@ export default function Login() {
         <div className="h-1 w-full bg-gradient-to-r from-teal-500 via-cyan-500 to-blue-500 lg:hidden" />
 
         <div className="flex flex-1 items-center justify-center px-6 py-10 sm:px-10">
-          <div className="login-fade-up w-full max-w-[400px]">
+          <div className="login-fade-up w-full max-w-[430px]">
             {/* 移动端品牌 */}
             <div className="mb-8 flex items-center gap-3 lg:hidden">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-blue-500 text-white shadow-md">
-                <Boxes className="h-5 w-5" strokeWidth={1.8} />
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-blue-500 text-white shadow-md">
+                <Boxes className="h-6 w-6" strokeWidth={1.8} />
               </div>
               <div>
-                <div className="text-base font-bold tracking-wide text-gray-800">CLINI X TRIALS</div>
-                <div className="text-[11px] tracking-widest text-gray-400">临床研究运营平台</div>
+                <div className="text-lg font-bold tracking-wide text-gray-800">CLINI X TRIALS</div>
+                <div className="text-xs tracking-widest text-gray-400">临床研究运营平台</div>
               </div>
             </div>
 
-            <h2 className="text-2xl font-bold tracking-wide text-gray-900">欢迎回来</h2>
-            <p className="mt-1.5 text-sm text-gray-400">请使用您的账号信息登录平台</p>
+            <h2 className="text-3xl font-bold tracking-wide text-gray-900">欢迎回来</h2>
+            <p className="mt-2 text-base text-gray-400">请使用您的账号信息登录平台</p>
 
             {/* 登录方式切换 */}
-            <div className="mt-7 grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
+            <div className="mt-8 grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
               {(
                 [
                   ['password', '账号密码登录'],
@@ -286,7 +286,7 @@ export default function Login() {
                     setErrors({})
                   }}
                   className={cn(
-                    'h-9 rounded-lg text-[13px] font-medium transition-all',
+                    'h-10 rounded-lg text-sm font-medium transition-all',
                     mode === key
                       ? 'bg-white text-teal-600 shadow-sm'
                       : 'text-gray-500 hover:text-gray-700',
@@ -297,7 +297,7 @@ export default function Login() {
               ))}
             </div>
 
-            <form onSubmit={submit} noValidate className="mt-6 space-y-4">
+            <form onSubmit={submit} noValidate className="mt-7 space-y-5">
               {mode === 'password' ? (
                 <>
                   <Field label="登录账号" icon={User} error={errors.account}>
@@ -325,9 +325,9 @@ export default function Login() {
                       aria-label={showPwd ? '隐藏密码' : '显示密码'}
                     >
                       {showPwd ? (
-                        <EyeOff className="h-[18px] w-[18px]" />
+                        <EyeOff className="h-5 w-5" />
                       ) : (
-                        <Eye className="h-[18px] w-[18px]" />
+                        <Eye className="h-5 w-5" />
                       )}
                     </button>
                   </Field>
@@ -336,7 +336,7 @@ export default function Login() {
                 <>
                   <Field label="手机号" icon={Smartphone} error={errors.phone}>
                     <input
-                      className={inputCls}
+                      className={cn(inputCls, 'font-num')}
                       placeholder="请输入注册手机号"
                       maxLength={11}
                       inputMode="numeric"
@@ -346,7 +346,7 @@ export default function Login() {
                   </Field>
                   <Field label="短信验证码" icon={ShieldCheck} error={errors.code}>
                     <input
-                      className={inputCls}
+                      className={cn(inputCls, 'font-num')}
                       placeholder="请输入 6 位验证码"
                       maxLength={6}
                       inputMode="numeric"
@@ -358,13 +358,17 @@ export default function Login() {
                       onClick={sendCode}
                       disabled={countdown > 0}
                       className={cn(
-                        'shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-all',
+                        'shrink-0 rounded-lg px-3.5 py-2 text-[13px] font-medium whitespace-nowrap transition-all',
                         countdown > 0
                           ? 'cursor-not-allowed bg-gray-100 text-gray-400'
                           : 'bg-teal-50 text-teal-600 hover:bg-teal-100',
                       )}
                     >
-                      {countdown > 0 ? `${countdown}s 后重发` : '获取验证码'}
+                      {countdown > 0 ? (
+                        <span className="font-num">{`${countdown}s 后重发`}</span>
+                      ) : (
+                        '获取验证码'
+                      )}
                     </button>
                   </Field>
                 </>
@@ -372,18 +376,18 @@ export default function Login() {
 
               {/* 记住我 / 忘记密码 */}
               <div className="flex items-center justify-between pt-0.5">
-                <label className="flex cursor-pointer items-center gap-2 text-[13px] text-gray-500 select-none">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-500 select-none">
                   <input
                     type="checkbox"
                     checked={remember}
                     onChange={(e) => setRemember(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-gray-300 text-teal-500 accent-teal-500"
+                    className="h-4 w-4 rounded border-gray-300 text-teal-500 accent-teal-500"
                   />
                   记住我
                 </label>
                 <button
                   type="button"
-                  className="text-[13px] text-teal-600 transition-colors hover:text-teal-700"
+                  className="text-sm text-teal-600 transition-colors hover:text-teal-700"
                 >
                   忘记密码？
                 </button>
@@ -391,7 +395,7 @@ export default function Login() {
 
               {/* 协议 */}
               <div>
-                <label className="flex cursor-pointer items-start gap-2 text-[13px] leading-relaxed text-gray-500 select-none">
+                <label className="flex cursor-pointer items-start gap-2 text-sm leading-relaxed text-gray-500 select-none">
                   <input
                     type="checkbox"
                     checked={agreed}
@@ -399,7 +403,7 @@ export default function Login() {
                       setAgreed(e.target.checked)
                       if (e.target.checked) setErrors((er) => ({ ...er, agreed: '' }))
                     }}
-                    className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300 text-teal-500 accent-teal-500"
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-teal-500 accent-teal-500"
                   />
                   <span>
                     我已阅读并同意
@@ -412,7 +416,7 @@ export default function Login() {
                     </button>
                   </span>
                 </label>
-                {errors.agreed && <p className="mt-1.5 text-xs text-red-500">{errors.agreed}</p>}
+                {errors.agreed && <p className="mt-1.5 text-[13px] text-red-500">{errors.agreed}</p>}
               </div>
 
               {/* 提交 */}
@@ -420,7 +424,7 @@ export default function Login() {
                 type="submit"
                 disabled={loading}
                 className={cn(
-                  'group flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-semibold text-white shadow-lg shadow-teal-500/25 transition-all',
+                  'group flex h-[52px] w-full items-center justify-center gap-2 rounded-xl text-base font-semibold text-white shadow-lg shadow-teal-500/25 transition-all',
                   loading
                     ? 'cursor-wait bg-teal-400'
                     : 'bg-gradient-to-r from-teal-500 to-cyan-600 hover:shadow-xl hover:shadow-teal-500/30 hover:brightness-105 active:scale-[0.99]',
@@ -428,19 +432,19 @@ export default function Login() {
               >
                 {loading ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-[18px] w-[18px] animate-spin" />
                     正在登录…
                   </>
                 ) : (
                   <>
                     立即登录
-                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                    <ArrowRight className="h-[18px] w-[18px] transition-transform group-hover:translate-x-0.5" />
                   </>
                 )}
               </button>
             </form>
 
-            <p className="mt-6 text-center text-[13px] text-gray-400">
+            <p className="mt-7 text-center text-sm text-gray-400">
               还没有账号？
               <button
                 type="button"
@@ -451,8 +455,8 @@ export default function Login() {
             </p>
 
             {/* 演示账号提示 */}
-            <div className="mt-6 flex items-start gap-2 rounded-xl border border-teal-100 bg-teal-50/60 px-3.5 py-3 text-xs leading-relaxed text-teal-700">
-              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div className="mt-6 flex items-start gap-2 rounded-xl border border-teal-100 bg-teal-50/60 px-4 py-3 text-[13px] leading-relaxed text-teal-700">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <span className="font-medium">演示账号</span>（密码均为 123456）：
                 PM 端 <code className="rounded bg-white px-1 font-mono">shilei</code> ，CRA 端{' '}
@@ -464,8 +468,11 @@ export default function Login() {
         </div>
 
         {/* 底部 */}
-        <footer className="flex flex-col items-center gap-1 px-6 pb-6 text-[11px] tracking-wide text-gray-400">
-          <div>© 2026 乂氪医疗科技 · Clin X Trials 临床研究运营平台 v1.0</div>
+        <footer className="flex flex-col items-center gap-1 px-6 pb-6 text-xs tracking-wide text-gray-400">
+          <div>
+            © <span className="font-num">2026</span> 乂氪医疗科技 · Clin X Trials
+            临床研究运营平台 v1.0
+          </div>
         </footer>
       </div>
     </div>

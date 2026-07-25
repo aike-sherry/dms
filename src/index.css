@@ -71,7 +71,19 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family:
+      'PingFang SC', 'HarmonyOS Sans SC', 'Source Han Sans SC', 'Noto Sans SC', 'Microsoft YaHei',
+      'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
+}
+
+/* 数字等宽（验证码倒计时、手机号等对数字更稳） */
+.font-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
 }
 
 /* 登录页动效 */
