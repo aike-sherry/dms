@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Plus, Download, ChevronRight, Upload, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -91,6 +91,17 @@ export default function TmfPage({ type }: { type: 'study' | 'site' }) {
   /* 下载选择模式：勾选文件夹后批量下载，可取消 */
   const [dlMode, setDlMode] = useState(false)
   const [dlSel, setDlSel] = useState<Set<string>>(new Set())
+  /* R36 回归修复：STUDY/SITE 侧栏切换共用同一组件实例，type 变化时重置钻取与选择状态，
+     避免残留另一类型目录的详情视图（面包屑标签与内容错位） */
+  useEffect(() => {
+    setDetail(null)
+    setFolderStack([])
+    setUploadOpen(false)
+    setRenamingId(null)
+    setRenamingCatId(null)
+    setDlMode(false)
+    setDlSel(new Set())
+  }, [type])
   const enterDl = () => {
     setDlMode(true)
     setDlSel(new Set())

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Download, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -15,11 +15,12 @@ import {
   FileTypeIcon,
   StatusPill,
   FavButton,
+  TealLink,
 } from '@/components/common'
 import { siteManageRows, projectOptions } from '@/data/mock'
-import { useStore, craNameOf, type Catalog } from '@/store'
+import { useStore, craNameOf, type Catalog, type TmfFile } from '@/store'
 
-/* 执行人员 SITE TMF：目录来自 PM 创建（store），可钻取查看归档文件 */
+/* 执行人员 SITE TMF：目录来自 PM 创建（store），可逐级钻取查看归档文件（一级→二级→三级，栈式面包屑可回跳） */
 export default function ExSiteTmf() {
   const { state, dispatch } = useStore()
   const [search, setSearch] = useState('')
@@ -30,6 +31,13 @@ export default function ExSiteTmf() {
     const m = window.location.hash.match(/drill=([\w-]+)/)
     return state.catalogs.find((c) => c.id === m?.[1] && c.kind === 'site') ?? null
   })
+  /* R36：钻取视图逐级打开已归档文件夹（与 PM 端 TmfPage 同一栈式路径模型）；进入/退出目录时重置 */
+  const [folderStack, setFolderStack] = useState<TmfFile[]>([])
+  const currentFolder = folderStack[folderStack.length - 1] ?? null
+  const enterDetail = (c: Catalog | null) => {
+    setDetail(c)
+    setFolderStack([])
+  }
   /* 下载选择模式：勾选文件夹后批量下载，可取消 */
   const [dlMode, setDlMode] = useState(false)
   const [dlSel, setDlSel] = useState<Set<string>>(new Set())
@@ -64,9 +72,19 @@ export default function ExSiteTmf() {
     [state.catalogs, search, project],
   )
 
+  /* 钻取视图：目录顶层条目（一级文件夹/直属文件）；R36 修复——排除子级（!f.parentId），与 PM 端同口径 */
   const folderFiles = useMemo(
-    () => (detail ? state.files.filter((f) => f.folderId === detail.id && f.status === 'archived') : []),
+    () =>
+      detail
+        ? state.files.filter((f) => f.folderId === detail.id && f.status === 'archived' && !f.parentId)
+        : [],
     [state.files, detail],
+  )
+  /* 当前层级子项（二级/三级文件夹与其中的文件） */
+  const childFiles = useMemo(
+    () =>
+      currentFolder ? state.files.filter((f) => f.parentId === currentFolder.id && f.status === 'archived') : [],
+    [state.files, currentFolder],
   )
 
   return (
@@ -177,7 +195,7 @@ export default function ExSiteTmf() {
               {catalogs.map((c) => (
                 <Tr
                   key={c.id}
-                  onClick={() => (dlMode ? toggleDl(c.id) : setDetail(c))}
+                  onClick={() => (dlMode ? toggleDl(c.id) : enterDetail(c))}
                   className={dlMode && dlSel.has(c.id) ? 'bg-teal-50/60' : undefined}
                 >
                   <NameTd>
@@ -217,20 +235,52 @@ export default function ExSiteTmf() {
         </PageCard>
       ) : (
         <PageCard bodyClassName="pt-0" className="pt-5">
-          {/* 面包屑返回 */}
+          {/* 面包屑：SITE TMF / 目录 / 逐级文件夹——中间层级可点击回跳 */}
           <div className="mb-4 flex items-center gap-1.5 text-sm">
             <button
               type="button"
-              onClick={() => setDetail(null)}
+              onClick={() => enterDetail(null)}
               className="font-medium text-teal-600 transition-colors hover:text-teal-700 hover:underline"
             >
               SITE TMF
             </button>
             <ChevronRight className="h-4 w-4 text-gray-300" />
-            <span className="flex items-center gap-2 text-gray-700">
-              <FileTypeIcon kind="folder" className="h-4 w-4" />
-              {detail.name}
-            </span>
+            {folderStack.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setFolderStack([])}
+                className="flex items-center gap-2 text-teal-600 transition-colors hover:text-teal-700 hover:underline"
+              >
+                <FileTypeIcon kind="folder" className="h-4 w-4" />
+                {detail.name}
+              </button>
+            ) : (
+              <span className="flex items-center gap-2 text-gray-700">
+                <FileTypeIcon kind="folder" className="h-4 w-4" />
+                {detail.name}
+              </span>
+            )}
+            {/* 逐级钻取路径：中间层级可点击回退 */}
+            {folderStack.map((fo, i) => (
+              <Fragment key={fo.id}>
+                <ChevronRight className="h-4 w-4 text-gray-300" />
+                {i < folderStack.length - 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => setFolderStack((s) => s.slice(0, i + 1))}
+                    className="flex items-center gap-2 text-teal-600 transition-colors hover:text-teal-700 hover:underline"
+                  >
+                    <FileTypeIcon kind="folder" className="h-4 w-4" />
+                    {fo.name}
+                  </button>
+                ) : (
+                  <span className="flex items-center gap-2 text-gray-700">
+                    <FileTypeIcon kind="folder" className="h-4 w-4" />
+                    {fo.name}
+                  </span>
+                )}
+              </Fragment>
+            ))}
           </div>
 
           <DataTable>
@@ -241,27 +291,44 @@ export default function ExSiteTmf() {
                 <Th className="w-36">更新人员</Th>
                 <Th className="w-36">更新日期</Th>
                 <Th className="w-28">文件大小</Th>
+                <Th sortable={false} className="w-24">操作</Th>
               </tr>
             </thead>
             <tbody>
-              {folderFiles.map((f) => (
+              {(currentFolder ? childFiles : folderFiles).map((f) => (
                 <Tr key={f.id}>
                   <NameTd aside={f.kind !== 'folder' ? <FavButton id={f.id} /> : undefined}>
                     <span className="flex min-w-0 items-center gap-2.5">
                       <FileTypeIcon kind={f.kind} />
-                      <span className="truncate text-gray-700">{f.name}</span>
+                      {f.kind === 'folder' ? (
+                        <button
+                          type="button"
+                          onClick={() => setFolderStack((s) => [...s, f])}
+                          title="点击进入下一级"
+                          className="truncate text-gray-700 underline decoration-gray-300 decoration-dotted underline-offset-4 transition-colors hover:text-teal-600"
+                        >
+                          {f.name}
+                        </button>
+                      ) : (
+                        <span className="truncate text-gray-700">{f.name}</span>
+                      )}
                     </span>
                   </NameTd>
                   <Td>{f.projectNo}</Td>
                   <Td>{f.uploader}</Td>
                   <Td>{f.uploadDate}</Td>
                   <Td>{f.size}</Td>
+                  <Td>
+                    {f.kind !== 'folder' && (
+                      <TealLink onClick={() => toast.success('已开始下载', { description: f.name })}>下载</TealLink>
+                    )}
+                  </Td>
                 </Tr>
               ))}
-              {folderFiles.length === 0 && (
+              {(currentFolder ? childFiles : folderFiles).length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-sm text-gray-400">
-                    该文件夹暂无归档文件
+                  <td colSpan={6} className="py-12 text-center text-sm text-gray-400">
+                    {currentFolder ? '该文件夹内暂无文件' : '该文件夹暂无归档文件'}
                   </td>
                 </tr>
               )}
