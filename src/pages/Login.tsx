@@ -75,7 +75,7 @@ const inputCls =
 
 function DocFlowVisual() {
   return (
-    <div aria-hidden className="relative mt-5 hidden h-[150px] max-w-[580px] select-none lg:block 2xl:mt-7 2xl:h-[190px] 2xl:max-w-[640px]">
+    <div aria-hidden className="relative mt-9 hidden h-[170px] max-w-[580px] select-none lg:block 2xl:mt-11 2xl:h-[210px] 2xl:max-w-[660px]">
       {/* 柔和底光 */}
       <div className="absolute inset-x-8 top-4 bottom-0 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(45,212,191,0.12),transparent_70%)] blur-xl" />
 
@@ -346,16 +346,8 @@ export default function Login() {
             </div>
           </div>
 
-          <p
-            className="login-fade-up mt-4 max-w-xl text-[15px] leading-relaxed text-gray-500"
-            style={{ animationDelay: '0.16s' }}
-          >
-            义氪专注于临床研究数字化，以一体化文档管理矩阵与灵活的定制化开发能力，助力药企、CRO
-            与医疗机构实现研究文件的标准化、可追溯管理。
-          </p>
-
           {/* 三条系统特点（窄屏隐藏，精简品牌区） */}
-          <ul className="mt-6 hidden space-y-4 lg:block">
+          <ul className="mt-9 hidden space-y-5 lg:block">
             {features.map(({ icon: Icon, title, desc, iconCls }, i) => (
               <li
                 key={title}
