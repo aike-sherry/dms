@@ -75,7 +75,7 @@ const inputCls =
 
 function DocFlowVisual() {
   return (
-    <div aria-hidden className="relative mt-9 hidden h-[170px] max-w-[580px] select-none lg:block 2xl:mt-11 2xl:h-[210px] 2xl:max-w-[660px]">
+    <div aria-hidden className="relative mt-12 hidden h-[150px] max-w-[520px] select-none lg:block 2xl:mt-14 2xl:h-[185px] 2xl:max-w-[600px]">
       {/* 柔和底光 */}
       <div className="absolute inset-x-8 top-4 bottom-0 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(45,212,191,0.12),transparent_70%)] blur-xl" />
 
@@ -152,7 +152,7 @@ function DocFlowVisual() {
       {/* 文档卡 A：审批中 */}
       <div className="login-fade-up absolute top-1 left-[15%]" style={{ animationDelay: '0.42s' }}>
         <div
-          className="login-float w-40 rounded-xl bg-white/85 p-3 shadow-[0_16px_40px_-12px_rgba(15,118,110,0.28)] ring-1 ring-white/70 backdrop-blur-md"
+          className="login-float w-40 rounded-xl bg-white/70 p-3 shadow-[0_12px_32px_-12px_rgba(15,118,110,0.2)] ring-1 ring-white/70 backdrop-blur-md"
           style={{ '--login-tilt': '-2deg' } as React.CSSProperties}
         >
           <div className="flex items-center gap-2">
@@ -189,7 +189,7 @@ function DocFlowVisual() {
       {/* 文档卡 B：已归档 */}
       <div className="login-fade-up absolute top-4 right-[9%]" style={{ animationDelay: '0.64s' }}>
         <div
-          className="login-float w-40 rounded-xl bg-white/85 p-3 shadow-[0_16px_40px_-12px_rgba(8,145,178,0.26)] ring-1 ring-white/70 backdrop-blur-md"
+          className="login-float w-40 rounded-xl bg-white/70 p-3 shadow-[0_12px_32px_-12px_rgba(8,145,178,0.18)] ring-1 ring-white/70 backdrop-blur-md"
           style={{ animationDelay: '1.3s', '--login-tilt': '1.5deg' } as React.CSSProperties}
         >
           <div className="flex items-center gap-2">
@@ -346,8 +346,8 @@ export default function Login() {
             </div>
           </div>
 
-          {/* 三条系统特点（窄屏隐藏，精简品牌区） */}
-          <ul className="mt-9 hidden space-y-5 lg:block">
+          {/* 三条系统特点（窄屏隐藏，精简品牌区；收窄 max-w-md 避免顶到中缝） */}
+          <ul className="mt-12 hidden max-w-md space-y-5 lg:block">
             {features.map(({ icon: Icon, title, desc, iconCls }, i) => (
               <li
                 key={title}
@@ -356,11 +356,11 @@ export default function Login() {
               >
                 <div
                   className={cn(
-                    'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-white/85 to-white/45 shadow-sm ring-1 backdrop-blur-sm',
+                    'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-white/85 to-white/45 shadow-sm ring-1 backdrop-blur-sm',
                     iconCls,
                   )}
                 >
-                  <Icon className="h-[22px] w-[22px]" strokeWidth={1.8} />
+                  <Icon className="h-5 w-5" strokeWidth={1.8} />
                 </div>
                 <div>
                   <div className="text-base font-semibold text-gray-800">{title}</div>
