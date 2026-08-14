@@ -111,6 +111,21 @@
 .login-ekg {
   animation: login-ekg-dash 6s linear infinite;
 }
+
+/* 登录页主视觉轻微浮动 */
+@keyframes login-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--login-tilt, 0deg));
+  }
+  50% {
+    transform: translateY(-7px) rotate(var(--login-tilt, 0deg));
+  }
+}
+
+.login-float {
+  animation: login-float 5.5s ease-in-out infinite;
+}
 /* 表格内容全局居中（文件名等 flex 单元格同步居中） */
 td > span.flex,
 td > div.flex {
