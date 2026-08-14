@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ModalHeader } from '@/components/CatalogDialog'
-import { PageCard, DataTable, Th, Td, Tr, SearchInput, ToolbarSelect } from '@/components/common'
+import { PageCard, DataTable, Th, Td, Tr, SearchInput, ToolbarSelect, NameTh } from '@/components/common'
 import { projectOptions } from '@/data/mock'
 import { useStore, nextId, todayStr, type Customer } from '@/store'
 import { cn } from '@/lib/utils'
@@ -233,14 +233,14 @@ export default function AdminCustomers() {
       <DataTable>
         <thead>
           <tr>
-            <Th sortable={false}>客户名称</Th>
-            <Th sortable={false}>联系人</Th>
-            <Th sortable={false}>联系电话</Th>
-            <Th sortable={false}>合作项目</Th>
-            <Th sortable={false}>状态</Th>
-            <Th sortable={false}>创建日期</Th>
-            <Th sortable={false}>备注</Th>
-            <Th sortable={false}>操作</Th>
+            <NameTh className="w-[18%]">客户名称</NameTh>
+            <Th sortable={false} className="w-28">联系人</Th>
+            <Th sortable={false} className="w-36">联系电话</Th>
+            <Th sortable={false} className="w-44">合作项目</Th>
+            <Th sortable={false} className="w-24">状态</Th>
+            <Th sortable={false} className="w-36">创建日期</Th>
+            <Th sortable={false} className="w-44">备注</Th>
+            <Th sortable={false} className="w-32">操作</Th>
           </tr>
         </thead>
         <tbody>

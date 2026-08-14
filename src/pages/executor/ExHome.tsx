@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { PageCard, DataTable, Th, Td, Tr } from '@/components/common'
 import { StudyDonutCard, SiteStatCards, SummaryBarCard } from '@/pages/Home'
-import { useStore, statsByCenter, craOfCenter, EXECUTOR_NAME } from '@/store'
+import { useStore, statsByCenter, craNameOf, EXECUTOR_NAME } from '@/store'
 
 /* 执行人员首页：与 PM 首页结构相同，统计作用域仅自己的文件；底部为单表（无 STUDY/SITE 双 Tab） */
 export default function ExHome() {
@@ -29,23 +29,31 @@ export default function ExHome() {
             </tr>
           </thead>
           <tbody>
-            {siteRows.map((r) => (
+            {siteRows.map((r) => {
+              /* R32：CRA 列改读研究中心注册表；未配置显示 — */
+              const cra = craNameOf(state.centers, r.center)
+              return (
               <Tr key={r.center}>
                 <Td>{r.center}</Td>
                 <Td>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-50 text-[11px] font-medium text-teal-600">
-                      {craOfCenter(state.craMap, r.center).slice(0, 1)}
+                  {cra ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-50 text-[11px] font-medium text-teal-600">
+                        {cra.slice(0, 1)}
+                      </span>
+                      {cra}
                     </span>
-                    {craOfCenter(state.craMap, r.center)}
-                  </span>
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
                 </Td>
                 <Td>{r.uploaded}</Td>
                 <Td>{r.pending}</Td>
                 <Td>{r.rejected}</Td>
                 <Td>{r.archived}</Td>
               </Tr>
-            ))}
+              )
+            })}
             {siteRows.length === 0 && (
               <tr>
                 <td colSpan={6} className="py-10 text-center text-sm text-gray-400">

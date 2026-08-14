@@ -1,4 +1,4 @@
-import { Boxes, Home, FolderUp, FolderSync, FolderSearch, FolderOpen, FolderArchive, Heart, LayoutDashboard, UsersRound, Building2 } from 'lucide-react'
+import { Home, FolderUp, FolderSync, FolderSearch, FolderOpen, FolderArchive, Heart, LayoutDashboard, UsersRound, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useThemeBg } from '@/lib/theme'
 import type { Role } from '@/store'
@@ -49,19 +49,13 @@ export default function Sidebar({
   const items = allNavItems.filter((i) => i.roles.includes(role))
   const { navBg } = useThemeBg()
 
+  /* 悬浮圆角卡片：渐变背景 + rounded-2xl + overflow-hidden，四周留白由 Layout 外层容器提供 */
   return (
     <aside
-      className="flex h-full w-[120px] shrink-0 flex-col items-center overflow-y-auto py-5"
+      className="flex h-full w-[120px] shrink-0 flex-col items-center overflow-hidden rounded-2xl py-5 shadow-lg"
       style={{ background: navBg }}
     >
-      {/* Logo */}
-      <div className="mb-8 flex flex-col items-center gap-1.5 px-2 text-center">
-        <Boxes className="h-8 w-8 text-white" strokeWidth={1.6} />
-        <div className="text-[15px] font-bold tracking-wide text-white">Clin X Trials</div>
-        <div className="text-[9px] tracking-wide text-white/70">临床研究运营管理平台</div>
-      </div>
-
-      {/* 导航 */}
+      {/* 导航（LOGO 已移至顶栏） */}
       <nav className="flex w-full flex-1 flex-col items-center gap-1.5 px-3">
         {items.map(({ key, label, icon: Icon }) => {
           const isActive = active === key

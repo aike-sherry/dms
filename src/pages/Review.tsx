@@ -9,14 +9,17 @@ import {
   Th,
   Td,
   NameTd,
+  NameTh,
   Tr,
   ToolbarSelect,
   SearchInput,
   FileTypeIcon,
   TealLink,
 } from '@/components/common'
+import { VersionHist } from '@/components/VersionHist'
 import { projectOptions } from '@/data/mock'
-import { useStore, statsByCenter, type TmfFile } from '@/store'
+import { planArchive } from '@/lib/archiveRouter'
+import { useStore, statsByCenter, PM_USER, type TmfFile } from '@/store'
 
 /* PM 文件审核：展示执行人员提交的待审核文件；文件夹可打开后对内部文件逐一审核 */
 export default function Review({ onOpenPdf }: { onOpenPdf: (fileId: string) => void }) {
@@ -46,9 +49,37 @@ export default function Review({ onOpenPdf }: { onOpenPdf: (fileId: string) => v
     [state.files, folderView],
   )
 
-  const archive = (id: string, name: string) => {
-    dispatch({ type: 'archiveFile', id })
-    toast.success('归档成功', { description: `${name} 已进入 TMF 目录，执行端列表同步移除` })
+  /* 审核通过归档：CRA 上传时选定目标文件夹的文件直接落入该 SITE TMF 文件夹（跳过路由表），
+     其余与 TRANSFER 相同的路由落位（识别 docType → 路由表 → 分区/文档类型文件夹，未识别进 99 待分拣）；
+     文件夹级联时子文件各自判断 */
+  const archive = (f: TmfFile) => {
+    const children =
+      f.kind === 'folder' ? state.files.filter((x) => x.parentId === f.id && x.status === 'pending') : []
+    const plan = planArchive({
+      file: f,
+      children,
+      files: state.files,
+      catalogs: state.catalogs,
+      routes: state.archiveRoutes,
+      uploader: PM_USER.name,
+    })
+    if (!plan) {
+      toast.error('未找到 STUDY TMF 目录', { description: '请先在 STUDY TMF 页创建目录后再归档' })
+      return
+    }
+    dispatch({ type: 'archiveRouted', newFolders: plan.newFolders, entries: plan.entries })
+    const okLines = [...plan.groups.entries()].map(([p, n]) => `已归档至 STUDY TMF / ${p}（${n} 个文件）`)
+    const siteLines = [...plan.siteGroups.entries()].map(([p, n]) => `已归档至 SITE TMF / ${p}（${n} 个文件）`)
+    const allLines = [...siteLines, ...okLines]
+    if (f.kind === 'folder') allLines.unshift(`文件夹「${f.name}」及子文件已归档`)
+    if (allLines.length > 0) {
+      toast.success('归档成功', { description: `${allLines.join('；')}，执行端列表同步移除` })
+    }
+    if (plan.unsorted > 0) {
+      toast.warning(`${plan.unsorted} 个文件进入「99 待分拣」`, {
+        description: '未识别文档类型或无匹配路由，已归档至 STUDY TMF / 99 待分拣，需人工分拣',
+      })
+    }
   }
 
   return (
@@ -108,21 +139,22 @@ export default function Review({ onOpenPdf }: { onOpenPdf: (fileId: string) => v
         <DataTable>
           <thead>
             <tr>
-              <Th sortable={false}>文件名称</Th>
-              <Th>项目编号</Th>
-              <Th>上传人员</Th>
-              <Th>更新日期</Th>
-              <Th>文件大小</Th>
-              <Th sortable={false}>操作</Th>
+              <NameTh className="w-[24%]">文件名称</NameTh>
+              <Th className="w-36">项目编号</Th>
+              <Th className="w-32">上传人员</Th>
+              <Th className="w-36">更新日期</Th>
+              <Th className="w-28">文件大小</Th>
+              <Th sortable={false} className="w-32">操作</Th>
             </tr>
           </thead>
           <tbody>
             {pendingFiles.map((f) => (
               <Tr key={f.id}>
                 <NameTd>
-                  <span className="flex items-center gap-2.5">
+                  <span className="flex min-w-0 items-center gap-2.5">
                     <FileTypeIcon kind={f.kind} />
-                    <span className="text-gray-700">{f.name}</span>
+                    <span className="truncate text-gray-700">{f.name}</span>
+                    <VersionHist file={f} />
                   </span>
                 </NameTd>
                 <Td>{f.projectNo}</Td>
@@ -132,7 +164,7 @@ export default function Review({ onOpenPdf }: { onOpenPdf: (fileId: string) => v
                 <Td>
                   <span className="flex items-center gap-4">
                     <TealLink onClick={() => (f.kind === 'folder' ? setFolderView(f) : onOpenPdf(f.id))}>审核</TealLink>
-                    <TealLink onClick={() => archive(f.id, f.name)}>归档</TealLink>
+                    <TealLink onClick={() => archive(f)}>归档</TealLink>
                   </span>
                 </Td>
               </Tr>
@@ -161,18 +193,19 @@ export default function Review({ onOpenPdf }: { onOpenPdf: (fileId: string) => v
             <DataTable>
               <thead>
                 <tr>
-                  <Th sortable={false}>文件名称</Th>
-                  <Th sortable={false}>文件大小</Th>
-                  <Th sortable={false}>操作</Th>
+                  <NameTh>文件名称</NameTh>
+                  <Th sortable={false} className="w-28">文件大小</Th>
+                  <Th sortable={false} className="w-20">操作</Th>
                 </tr>
               </thead>
               <tbody>
                 {childFiles.map((f) => (
                   <Tr key={f.id}>
                     <NameTd>
-                      <span className="flex items-center gap-2.5">
+                      <span className="flex min-w-0 items-center gap-2.5">
                         <FileTypeIcon kind={f.kind} />
-                        <span className="text-gray-700">{f.name}</span>
+                        <span className="truncate text-gray-700">{f.name}</span>
+                        <VersionHist file={f} />
                       </span>
                     </NameTd>
                     <Td>{f.size}</Td>

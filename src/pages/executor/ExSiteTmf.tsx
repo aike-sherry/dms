@@ -8,6 +8,7 @@ import {
   Th,
   Td,
   NameTd,
+  NameTh,
   Tr,
   ToolbarSelect,
   SearchInput,
@@ -16,7 +17,7 @@ import {
   FavButton,
 } from '@/components/common'
 import { siteManageRows, projectOptions } from '@/data/mock'
-import { useStore, craOfCenter, type Catalog } from '@/store'
+import { useStore, craNameOf, type Catalog } from '@/store'
 
 /* 执行人员 SITE TMF：目录来自 PM 创建（store），可钻取查看归档文件 */
 export default function ExSiteTmf() {
@@ -84,23 +85,31 @@ export default function ExSiteTmf() {
             </tr>
           </thead>
           <tbody>
-            {siteManageRows.map((r) => (
+            {siteManageRows.map((r) => {
+              /* R32：CRA 列改读研究中心注册表；未配置显示 — */
+              const cra = craNameOf(state.centers, r.name)
+              return (
               <Tr key={r.name}>
                 <Td>{r.name}</Td>
                 <Td>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-50 text-[11px] font-medium text-teal-600">
-                      {craOfCenter(state.craMap, r.name).slice(0, 1)}
+                  {cra ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-50 text-[11px] font-medium text-teal-600">
+                        {cra.slice(0, 1)}
+                      </span>
+                      {cra}
                     </span>
-                    {craOfCenter(state.craMap, r.name)}
-                  </span>
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
                 </Td>
                 <Td>{r.uploaded}</Td>
                 <Td>{r.reviewing}</Td>
                 <Td>{r.approved}</Td>
                 <Td>{r.archived}</Td>
               </Tr>
-            ))}
+              )
+            })}
           </tbody>
         </DataTable>
       </PageCard>
@@ -155,13 +164,13 @@ export default function ExSiteTmf() {
           <DataTable>
             <thead>
               <tr>
-                <Th sortable={false}>文件名称</Th>
-                <Th>项目编号</Th>
-                <Th>研究中心</Th>
-                <Th>更新人员</Th>
-                <Th>更新日期</Th>
-                <Th>文件大小</Th>
-                <Th sortable={false}>文件状态</Th>
+                <NameTh className="w-[22%]">文件名称</NameTh>
+                <Th className="w-36">项目编号</Th>
+                <Th className="w-36">研究中心</Th>
+                <Th className="w-32">更新人员</Th>
+                <Th className="w-36">更新日期</Th>
+                <Th className="w-28">文件大小</Th>
+                <Th sortable={false} className="w-32">文件状态</Th>
               </tr>
             </thead>
             <tbody>
@@ -183,7 +192,7 @@ export default function ExSiteTmf() {
                         />
                       )}
                       <FileTypeIcon kind="folder" />
-                      <span className="text-gray-700">{c.name}</span>
+                      <span className="truncate text-gray-700">{c.name}</span>
                     </span>
                   </NameTd>
                   <Td>{c.projectNo}</Td>
@@ -227,20 +236,20 @@ export default function ExSiteTmf() {
           <DataTable>
             <thead>
               <tr>
-                <Th sortable={false}>文件名称</Th>
-                <Th>项目编号</Th>
-                <Th>更新人员</Th>
-                <Th>更新日期</Th>
-                <Th>文件大小</Th>
+                <NameTh className="w-[22%]">文件名称</NameTh>
+                <Th className="w-36">项目编号</Th>
+                <Th className="w-36">更新人员</Th>
+                <Th className="w-36">更新日期</Th>
+                <Th className="w-28">文件大小</Th>
               </tr>
             </thead>
             <tbody>
               {folderFiles.map((f) => (
                 <Tr key={f.id}>
                   <NameTd aside={f.kind !== 'folder' ? <FavButton id={f.id} /> : undefined}>
-                    <span className="flex items-center gap-2.5">
+                    <span className="flex min-w-0 items-center gap-2.5">
                       <FileTypeIcon kind={f.kind} />
-                      <span className="text-gray-700">{f.name}</span>
+                      <span className="truncate text-gray-700">{f.name}</span>
                     </span>
                   </NameTd>
                   <Td>{f.projectNo}</Td>

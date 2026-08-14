@@ -1,6 +1,6 @@
 import { Star, FolderHeart } from 'lucide-react'
 import { toast } from 'sonner'
-import { PageCard, DataTable, Th, Td, NameTd, Tr, FileTypeIcon, TealLink } from '@/components/common'
+import { PageCard, DataTable, Th, Td, NameTd, NameTh, Tr, FileTypeIcon, TealLink } from '@/components/common'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyMedia } from '@/components/ui/empty'
 import { useStore } from '@/store'
 
@@ -20,21 +20,21 @@ export default function Favorite() {
         <DataTable>
           <thead>
             <tr>
-              <Th sortable={false}>文件名称</Th>
-              <Th>项目编号</Th>
-              <Th>收藏日期</Th>
-              <Th>文件大小</Th>
-              <Th sortable={false}>操作</Th>
+              <NameTh className="w-[26%]">文件名称</NameTh>
+              <Th className="w-40">项目编号</Th>
+              <Th className="w-36">收藏日期</Th>
+              <Th className="w-28">文件大小</Th>
+              <Th sortable={false} className="w-28">操作</Th>
             </tr>
           </thead>
           <tbody>
             {files.map((f) => (
               <Tr key={f.id}>
                 <NameTd>
-                  <span className="flex items-center gap-2.5">
-                    <Star className="h-4 w-4 fill-teal-500 text-teal-500" />
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <Star className="h-4 w-4 shrink-0 fill-teal-500 text-teal-500" />
                     <FileTypeIcon kind={f.kind} />
-                    <span className="text-gray-700">{f.name}</span>
+                    <span className="truncate text-gray-700">{f.name}</span>
                   </span>
                 </NameTd>
                 <Td>{f.projectNo}</Td>

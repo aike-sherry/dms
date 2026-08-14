@@ -8,7 +8,8 @@ import { FileTypeIcon } from '@/components/common'
 import ReportDocument from '@/components/ReportDocument'
 import { cn } from '@/lib/utils'
 import { pdfChangeLogs, pdfFileName } from '@/data/mock'
-import { useStore } from '@/store'
+import { planArchive } from '@/lib/archiveRouter'
+import { useStore, PM_USER } from '@/store'
 
 const PAGE_COUNT = 4
 /* 缩略图缩放比例：A4 文档宽 794px → 缩略到约 112px */
@@ -71,10 +72,44 @@ export default function PdfPreview({ fileId, onBack }: { fileId: string; onBack:
     [file, displayName, archived],
   )
 
-  /* 审核通过 → 自动归档到 TMF 文件夹，从执行端列表消失 */
+  /* 路由归档（与 TRANSFER / REVIEW 同一落位逻辑）：CRA 选定目标文件夹的文件直达该 SITE TMF 文件夹，
+     其余识别 docType → 路由表 → 分区/文档类型文件夹，未识别进 99 待分拣 */
+  const routeArchive = (title: string): boolean => {
+    if (!file) return false
+    const plan = planArchive({
+      file,
+      children: [],
+      files: state.files,
+      catalogs: state.catalogs,
+      routes: state.archiveRoutes,
+      uploader: PM_USER.name,
+    })
+    if (!plan) {
+      toast.error('未找到 STUDY TMF 目录', { description: '请先在 STUDY TMF 页创建目录后再归档' })
+      return false
+    }
+    dispatch({ type: 'archiveRouted', newFolders: plan.newFolders, entries: plan.entries })
+    if (plan.siteGroups.size > 0) {
+      const path = [...plan.siteGroups.keys()][0]
+      toast.success(title, { description: `已归档至 SITE TMF / ${path}，执行端上传列表同步移除` })
+    } else if (plan.unsorted > 0) {
+      toast.warning('文件进入「99 待分拣」', {
+        description: '未识别文档类型或无匹配路由，已归档至 STUDY TMF / 99 待分拣，需人工分拣',
+      })
+    } else {
+      const path = [...plan.groups.keys()][0]
+      toast.success(title, { description: `已归档至 STUDY TMF / ${path}，执行端上传列表同步移除` })
+    }
+    return true
+  }
+
+  /* 审核通过 → 按路由自动归档到 STUDY TMF 分区，从执行端列表消失 */
   const approve = () => {
-    if (file) dispatch({ type: 'approveFile', id: file.id })
-    toast.success('审核通过', { description: '文件已自动归档到 TMF 目录，执行端上传列表同步移除' })
+    if (file) {
+      if (!routeArchive('审核通过')) return
+    } else {
+      toast.success('审核通过', { description: '文件已自动归档到 TMF 目录，执行端上传列表同步移除' })
+    }
     onBack()
   }
 
@@ -91,9 +126,12 @@ export default function PdfPreview({ fileId, onBack }: { fileId: string; onBack:
   }
 
   const archiveDirect = () => {
-    if (file) dispatch({ type: 'archiveFile', id: file.id })
+    if (file) {
+      if (!routeArchive('归档成功')) return
+    } else {
+      toast.success('归档成功', { description: '文件已进入 TMF 目录，执行端列表同步移除' })
+    }
     setArchived(true)
-    toast.success('归档成功', { description: '文件已进入 TMF 目录，执行端列表同步移除' })
   }
 
   return (

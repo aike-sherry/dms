@@ -11,14 +11,14 @@ import {
   YAxis,
   CartesianGrid,
 } from 'recharts'
-import { Upload, ScanSearch, FileX, FolderArchive, UserRoundPlus, ArrowUp, ArrowDown } from 'lucide-react'
+import { Upload, ScanSearch, FileX, FolderArchive, UserRoundPlus, ArrowUp, ArrowDown, Plus, Hospital, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageCard, DataTable, Th, Td, Tr, ToolbarSelect, TealLink } from '@/components/common'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { projectOptions, siteOptions, barSeries, type StatIconKey } from '@/data/mock'
-import { useStore, statsByCenter, craOfCenter, craKeyOf, pmOfProject, PM_USER, type TmfFile, type Catalog } from '@/store'
+import { useStore, statsByCenter, craNameOf, projPrefixMatch, pmOfProject, nextId, PM_USER, type TmfFile, type Catalog, type Center } from '@/store'
 
 const statIcons: Record<StatIconKey, typeof Upload> = {
   upload: Upload,
@@ -27,7 +27,7 @@ const statIcons: Record<StatIconKey, typeof Upload> = {
   archive: FolderArchive,
 }
 
-/* ---------- 从 store 派生首页统计（子文件不重复计数） ---------- */
+/* ---------- 从 store 派生首页统计（子文件不重复计数；只统计具体文件，kind='folder' 的文件夹不计入） ---------- */
 
 /** 筛选器「全部」选项值 */
 const ALL = '全部'
@@ -56,6 +56,8 @@ interface HomeStats {
 function deriveHomeStats(files: TmfFile[], catalogs: Catalog[], filter: HomeFilter = {}): HomeStats {
   const tops = files.filter((f) => {
     if (f.parentId) return false
+    /* 口径：只统计具体文件，Excel 导入生成的空文件夹（kind='folder'）不计入上传/归档/环比等任何统计 */
+    if (f.kind === 'folder') return false
     if (filter.project && filter.project !== ALL && !f.projectNo.startsWith(filter.project)) return false
     if (filter.center && filter.center !== ALL && f.center !== filter.center) return false
     return true
@@ -409,23 +411,31 @@ function BottomTabsCard() {
             </tr>
           </thead>
           <tbody>
-            {siteRows.map((r) => (
+            {siteRows.map((r) => {
+              /* R32：CRA 列改读研究中心注册表；未配置显示 — */
+              const cra = craNameOf(state.centers, r.center)
+              return (
               <Tr key={r.center}>
                 <Td>{r.center}</Td>
                 <Td>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-50 text-[11px] font-medium text-teal-600">
-                      {craOfCenter(state.craMap, r.center).slice(0, 1)}
+                  {cra ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-50 text-[11px] font-medium text-teal-600">
+                        {cra.slice(0, 1)}
+                      </span>
+                      {cra}
                     </span>
-                    {craOfCenter(state.craMap, r.center)}
-                  </span>
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
                 </Td>
                 <Td>{r.uploaded}</Td>
                 <Td>{r.pending}</Td>
                 <Td>{r.rejected}</Td>
                 <Td>{r.archived}</Td>
               </Tr>
-            ))}
+              )
+            })}
             {siteRows.length === 0 && (
               <tr>
                 <td colSpan={6} className="py-10 text-center text-sm text-gray-400">
@@ -440,143 +450,249 @@ function BottomTabsCard() {
   )
 }
 
-/* ---------- 研究中心 CRA 分配（PM 首页专属模块） ---------- */
+/* ---------- 研究中心管理（PM 首页专属模块，R32 由「研究中心 CRA 分配」升级） ---------- */
 
-/** CRA 候选名单：演示数据，可与已分配姓名合并去重 */
-const CRA_CANDIDATES = ['王金', '李华', '陈明', '赵敏', '刘洋']
-
-function CraAssignCard() {
+/** R32：研究中心注册表为全系统唯一中心数据源——SITE 目录创建勾选、双端递交矩阵中心列、
+    CRA 上传弹窗中心下拉、各页「临床监查员」列均实时读取本表 */
+function CenterManageCard() {
   const { state, dispatch } = useStore()
-  const [assignTarget, setAssignTarget] = useState<{ projectNo: string; center: string } | null>(null)
-  const [craName, setCraName] = useState('')
+  /* editId：'new' = 新增；否则为编辑中的中心 id；null = 弹窗关闭 */
+  const [editId, setEditId] = useState<string | 'new' | null>(null)
+  const [fProject, setFProject] = useState('')
+  const [fName, setFName] = useState('')
+  const [fCra, setFCra] = useState('')
 
-  /* 分配维度：项目编号 × 研究中心 组合；来源 = SITE TMF 目录 ∪ 已配置过的组合键 */
-  const pairs = useMemo(() => {
-    const map = new Map<string, { projectNo: string; center: string }>()
-    for (const c of state.catalogs) {
-      if (c.kind === 'site' && c.center) map.set(craKeyOf(c.center, c.projectNo), { projectNo: c.projectNo, center: c.center })
-    }
-    for (const key of Object.keys(state.craMap)) {
-      if (key.includes('|')) {
-        const [projectNo, center] = key.split('|')
-        map.set(key, { projectNo, center })
-      }
-    }
-    return [...map.values()].sort((a, b) => a.projectNo.localeCompare(b.projectNo) || a.center.localeCompare(b.center))
-  }, [state.catalogs, state.craMap])
-
-  /* 弹窗候选：内置名单 ∪ 已分配过的 CRA 姓名 */
-  const candidates = useMemo(
-    () => [...new Set([...CRA_CANDIDATES, ...Object.values(state.craMap)])],
-    [state.craMap],
+  const rows = useMemo(
+    () =>
+      [...state.centers].sort(
+        (a, b) => a.projectNo.localeCompare(b.projectNo) || a.name.localeCompare(b.name, 'zh'),
+      ),
+    [state.centers],
+  )
+  /* CRA 候选：后台执行人员账号（冻结账号历史仍可作为已分配值展示，但不再出现在候选中） */
+  const craOptions = useMemo(
+    () =>
+      [...new Set(state.accounts.filter((a) => a.role === 'executor' && a.status !== '关闭').map((a) => a.name))].map(
+        (n) => ({ label: n, value: n }),
+      ),
+    [state.accounts],
+  )
+  /* 项目编号输入辅助：注册表 ∪ 目录已有编号 */
+  const projectCandidates = useMemo(
+    () =>
+      [...new Set([...state.centers.map((c) => c.projectNo), ...state.catalogs.map((c) => c.projectNo)])]
+        .filter(Boolean)
+        .sort(),
+    [state.centers, state.catalogs],
   )
 
-  const openAssign = (pair: { projectNo: string; center: string }) => {
-    setAssignTarget(pair)
-    setCraName(craOfCenter(state.craMap, pair.center, pair.projectNo))
+  /* 已建目录判定：该「项目 + 中心」已存在 SITE TMF 目录（删除需确认；项目编号锁定不可改） */
+  const builtOf = (c: Center) =>
+    state.catalogs.some((cat) => cat.kind === 'site' && cat.center === c.name && projPrefixMatch(cat.projectNo, c.projectNo))
+  const editing = editId && editId !== 'new' ? (state.centers.find((c) => c.id === editId) ?? null) : null
+  const editingBuilt = editing ? builtOf(editing) : false
+
+  const openNew = () => {
+    setEditId('new')
+    setFProject(state.activeProject !== '全部' ? state.activeProject : '')
+    setFName('')
+    setFCra('')
+  }
+  const openEdit = (c: Center) => {
+    setEditId(c.id)
+    setFProject(c.projectNo)
+    setFName(c.name)
+    setFCra(c.cra)
   }
 
-  const confirmAssign = () => {
-    const name = craName.trim()
-    if (!assignTarget) return
-    if (!name) {
-      toast.warning('请输入 CRA 姓名')
+  const confirm = () => {
+    const projectNo = fProject.trim()
+    const name = fName.trim()
+    if (!projectNo) {
+      toast.warning('请输入项目编号')
       return
     }
-    dispatch({ type: 'assignCra', center: assignTarget.center, projectNo: assignTarget.projectNo, cra: name })
-    toast.success('分配成功', {
-      description: `${assignTarget.projectNo} / ${assignTarget.center} 的临床监查员已更新为 ${name}`,
-    })
-    setAssignTarget(null)
+    if (!name) {
+      toast.warning('请输入研究中心名称')
+      return
+    }
+    const dup = state.centers.some(
+      (c) => c.id !== editId && c.projectNo === projectNo && c.name === name,
+    )
+    if (dup) {
+      toast.warning('该中心已存在', { description: `${projectNo} 下已配置「${name}」，请勿重复添加` })
+      return
+    }
+    if (editId === 'new') {
+      dispatch({ type: 'addCenter', center: { id: nextId('ct'), name, projectNo, cra: fCra } })
+      toast.success('已新增研究中心', { description: `${projectNo} / ${name}${fCra ? ` · CRA：${fCra}` : ''}` })
+    } else if (editing) {
+      const renamed = name !== editing.name
+      dispatch({ type: 'updateCenter', id: editing.id, patch: { projectNo, name, cra: fCra } })
+      toast.success('研究中心已更新', {
+        description: renamed ? `「${editing.name}」已更名为「${name}」，已建目录/文件/递交矩阵同步更新` : `${projectNo} / ${name}`,
+      })
+    }
+    setEditId(null)
+  }
+
+  const remove = (c: Center) => {
+    /* 已建目录中心删除前确认：仅移除注册表配置，目录与文件保留 */
+    if (
+      builtOf(c) &&
+      !window.confirm(
+        `研究中心「${c.name}」（${c.projectNo}）已创建 SITE TMF 目录。\n\n删除仅移除注册表配置，已建目录与其中的文件会保留；但目录创建勾选、递交矩阵中心列、上传弹窗中心下拉等处将不再显示该中心。\n\n确认删除？`,
+      )
+    ) {
+      return
+    }
+    dispatch({ type: 'removeCenter', id: c.id })
+    toast.success('已删除研究中心', { description: `${c.projectNo} / ${c.name}` })
   }
 
   return (
     <PageCard
-      title="研究中心 CRA 分配"
-      extra={<span className="text-xs font-normal text-gray-400">按「项目编号 + 研究中心」分配，各页面的「临床监查员」列同步更新</span>}
+      title="研究中心管理"
+      extra={
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-normal text-gray-400">
+            注册表供目录创建 / 递交矩阵 / 上传弹窗等全系统使用，「临床监查员」列同步更新
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1 border-teal-200 text-xs text-teal-600 hover:bg-teal-50 hover:text-teal-700"
+            onClick={openNew}
+          >
+            <Plus className="h-3.5 w-3.5" /> 新增中心
+          </Button>
+        </div>
+      }
     >
       <DataTable>
         <thead>
           <tr>
-            <Th sortable={false}>项目编号</Th>
-            <Th sortable={false}>研究中心</Th>
-            <Th sortable={false}>临床监查员</Th>
-            <Th sortable={false}>操作</Th>
+            <Th sortable={false} className="w-48">项目编号</Th>
+            <Th sortable={false} className="w-[30%]">研究中心</Th>
+            <Th sortable={false} className="w-48">临床监查员</Th>
+            <Th sortable={false} className="w-32">操作</Th>
           </tr>
         </thead>
         <tbody>
-          {pairs.map((p) => (
-            <Tr key={craKeyOf(p.center, p.projectNo)}>
-              <Td>{p.projectNo}</Td>
-              <Td>{p.center}</Td>
-              <Td>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-50 text-[11px] font-medium text-teal-600">
-                    {craOfCenter(state.craMap, p.center, p.projectNo).slice(0, 1)}
+          {rows.map((c) => {
+            const built = builtOf(c)
+            return (
+              <Tr key={c.id}>
+                <Td>{c.projectNo}</Td>
+                <Td>
+                  <span className="inline-flex items-center gap-2">
+                    {c.name}
+                    {built && (
+                      <span className="rounded-full bg-gray-100 px-1.5 text-[10px] text-gray-400">已建目录</span>
+                    )}
                   </span>
-                  {craOfCenter(state.craMap, p.center, p.projectNo)}
-                </span>
-              </Td>
-              <Td>
-                <TealLink onClick={() => openAssign(p)}>
-                  {craKeyOf(p.center, p.projectNo) in state.craMap ? '更换' : '分配'}
-                </TealLink>
-              </Td>
-            </Tr>
-          ))}
-          {pairs.length === 0 && (
+                </Td>
+                <Td>
+                  {c.cra ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-50 text-[11px] font-medium text-teal-600">
+                        {c.cra.slice(0, 1)}
+                      </span>
+                      {c.cra}
+                    </span>
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
+                </Td>
+                <Td>
+                  <span className="inline-flex items-center gap-3">
+                    <TealLink onClick={() => openEdit(c)}>
+                      <span className="inline-flex items-center gap-1">
+                        <Pencil className="h-3 w-3" /> 编辑
+                      </span>
+                    </TealLink>
+                    <button
+                      type="button"
+                      onClick={() => remove(c)}
+                      className="inline-flex items-center gap-1 text-xs text-gray-400 transition-colors hover:text-red-500"
+                    >
+                      <Trash2 className="h-3 w-3" /> 删除
+                    </button>
+                  </span>
+                </Td>
+              </Tr>
+            )
+          })}
+          {rows.length === 0 && (
             <tr>
               <td colSpan={4} className="py-10 text-center text-sm text-gray-400">
-                暂无可分配的研究中心（请先在 SITE TMF 创建目录）
+                暂无研究中心，点击右上角「新增中心」添加
               </td>
             </tr>
           )}
         </tbody>
       </DataTable>
 
-      {/* 分配弹窗 */}
-      <Dialog open={!!assignTarget} onOpenChange={(o) => !o && setAssignTarget(null)}>
+      {/* 新增 / 编辑弹窗 */}
+      <Dialog open={!!editId} onOpenChange={(o) => !o && setEditId(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-[15px]">
-              <UserRoundPlus className="h-4 w-4 text-teal-600" /> 分配 CRA
+              <Hospital className="h-4 w-4 text-teal-600" /> {editId === 'new' ? '新增研究中心' : '编辑研究中心'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
-                <p className="text-xs text-gray-400">项目编号</p>
-                <p className="mt-0.5 text-sm font-medium text-gray-800">{assignTarget?.projectNo}</p>
-              </div>
-              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
-                <p className="text-xs text-gray-400">研究中心</p>
-                <p className="mt-0.5 text-sm font-medium text-gray-800">{assignTarget?.center}</p>
-              </div>
-            </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-gray-400">临床监查员（CRA）姓名</label>
+              <label className="text-xs text-gray-400">项目编号</label>
               <input
-                autoFocus
-                value={craName}
-                onChange={(e) => setCraName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && confirmAssign()}
-                list="cra-candidates"
-                placeholder="输入或选择 CRA 姓名"
-                className="h-9 w-full rounded-md border border-teal-300 px-3 text-sm text-gray-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                autoFocus={editId === 'new'}
+                value={fProject}
+                onChange={(e) => setFProject(e.target.value)}
+                list="center-project-candidates"
+                placeholder="请输入项目编号"
+                disabled={editingBuilt}
+                className={cn(
+                  'h-9 w-full rounded-md border border-teal-300 px-3 text-sm text-gray-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100',
+                  editingBuilt && 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400',
+                )}
               />
-              <datalist id="cra-candidates">
-                {candidates.map((n) => (
-                  <option key={n} value={n} />
+              <datalist id="center-project-candidates">
+                {projectCandidates.map((p) => (
+                  <option key={p} value={p} />
                 ))}
               </datalist>
-              <p className="text-xs text-gray-400">可从候选名单中选择，或直接输入新姓名</p>
+              {editingBuilt && <p className="text-xs text-gray-400">已建目录中心的项目编号不可修改</p>}
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-gray-400">研究中心名称</label>
+              <input
+                autoFocus={editId !== 'new'}
+                value={fName}
+                onChange={(e) => setFName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && confirm()}
+                placeholder="请输入研究中心名称"
+                className="h-9 w-full rounded-md border border-teal-300 px-3 text-sm text-gray-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              />
+              {editingBuilt && (
+                <p className="text-xs text-amber-500">改名将同步更新已建 SITE 目录名称、文件归属与递交矩阵</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-gray-400">临床监查员（CRA）</label>
+              <ToolbarSelect
+                value={fCra}
+                onChange={setFCra}
+                options={[{ label: '暂不分配', value: '' }, ...craOptions]}
+                className="w-full [&>select]:w-full"
+              />
+              <p className="text-xs text-gray-400">CRA 候选取自后台「账户配置」中的执行人员账号</p>
             </div>
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="outline" size="sm" onClick={() => setAssignTarget(null)}>
+              <Button variant="outline" size="sm" onClick={() => setEditId(null)}>
                 取消
               </Button>
-              <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={confirmAssign}>
-                确认分配
+              <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={confirm}>
+                {editId === 'new' ? '确认新增' : '确认保存'}
               </Button>
             </div>
           </div>
@@ -634,9 +750,9 @@ function PmAssignCard() {
       <DataTable>
         <thead>
           <tr>
-            <Th sortable={false}>项目编号</Th>
-            <Th sortable={false}>项目经理</Th>
-            <Th sortable={false}>操作</Th>
+            <Th sortable={false} className="w-[34%]">项目编号</Th>
+            <Th sortable={false} className="w-56">项目经理</Th>
+            <Th sortable={false} className="w-28">操作</Th>
           </tr>
         </thead>
         <tbody>
@@ -723,7 +839,7 @@ export default function Home() {
       </div>
       <SummaryBarCard />
       <BottomTabsCard />
-      <CraAssignCard />
+      <CenterManageCard />
       <PmAssignCard />
     </div>
   )

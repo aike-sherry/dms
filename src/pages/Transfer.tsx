@@ -1,11 +1,18 @@
 import { useMemo, useRef, useState } from 'react'
-import { ArrowLeft, FolderCog, Pencil, Plus, Trash2, Upload } from 'lucide-react'
+import { ArrowLeft, ChevronDown, FilePenLine, FileUp, FolderCog, FolderUp, Inbox, Pencil, Plus, Route, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { PageCard, DataTable, Th, Td, NameTd, Tr, FileTypeIcon, TealLink, FavButton, ToolbarSelect } from '@/components/common'
+import { PageCard, DataTable, Th, Td, NameTd, NameTh, Tr, FileTypeIcon, TealLink, FavButton, ToolbarSelect } from '@/components/common'
+import { VersionHist } from '@/components/VersionHist'
 import UploadDialog from '@/components/UploadDialog'
 import SmartProcessDialog, { type SmartMode } from '@/components/SmartProcessDialog'
+import { ModalHeader } from '@/components/CatalogDialog'
+import NamingRuleDialog from '@/components/NamingRuleDialog'
+import { analyzeName, autoNameBatch, DOC_TYPE_NAMES, notifyAutoName, TMF_ZONES, UNSORTED_ZONE } from '@/lib/smartDoc'
+import { inUnsortedZone, planArchive, planRehome } from '@/lib/archiveRouter'
+import { readDroppedItems, type DroppedPayload } from '@/lib/dropItems'
+import { cn } from '@/lib/utils'
 import { useStore, statsByProject, nextId, todayStr, fmtSize, PM_USER, EXECUTOR_CENTER, type TmfFile } from '@/store'
 
 /* PM Transfer：上传跳过审核可直接归档（归档至对应项目编号的 STUDY TMF 目录）；
@@ -23,7 +30,22 @@ export default function Transfer() {
   /* 文件夹项目编号更换 */
   const [projPicker, setProjPicker] = useState<TmfFile | null>(null)
   const [projDraft, setProjDraft] = useState('')
+  /* 归档规则弹窗 + 新增路由表单（CUSTOM_TYPE 表示自定义文档类型） */
+  const CUSTOM_TYPE = '__custom__'
+  const [rulesOpen, setRulesOpen] = useState(false)
+  const [ruleType, setRuleType] = useState<string>(DOC_TYPE_NAMES[0])
+  const [ruleCustom, setRuleCustom] = useState('')
+  const [ruleZone, setRuleZone] = useState<string>(TMF_ZONES[0])
+  /* 命名规则弹窗：打开共享 NamingRuleDialog（组件内自载入当前模板） */
+  const [namingOpen, setNamingOpen] = useState(false)
+  /* 99 待分拣队列弹窗 */
+  const [unsortedOpen, setUnsortedOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  /* R34 上传下拉（上传文件 / 上传文件夹直达 UploadDialog 对应模式）与页面级拖拽带入 */
+  const [uploadMenu, setUploadMenu] = useState(false)
+  const [uploadPick, setUploadPick] = useState<'files' | 'dir' | null>(null)
+  const [uploadPreset, setUploadPreset] = useState<DroppedPayload | null>(null)
+  const [dragOver, setDragOver] = useState(false)
 
   const myFiles = useMemo(() => state.files.filter((f) => f.uploader === PM_USER.name), [state.files])
   /* 全局项目筛选：无本页下拉，静默跟随顶部 Header（'全部' 不过滤） */
@@ -49,15 +71,95 @@ export default function Transfer() {
     [myFiles, openFolder],
   )
 
+  /* 归档：按「归档规则」把文件路由到该项目 STUDY TMF 的「分区 / 文档类型」文件夹（路由解析与落位见 archiveRouter）；
+     未识别文档类型或无匹配路由 → 99 待分拣；文件夹整体归档时子文件各自路由，文件夹本身归入目录根 */
   const archive = (f: TmfFile) => {
-    const childCount = f.kind === 'folder' ? myFiles.filter((x) => x.parentId === f.id).length : 0
-    dispatch({ type: 'archiveFile', id: f.id })
-    toast.success('归档成功', {
-      description:
-        childCount > 0
-          ? `文件夹「${f.name}」及 ${childCount} 个子文件已归档至 ${f.projectNo} 的 STUDY TMF 文件夹`
-          : `${f.name} 已归档至 ${f.projectNo} 的 STUDY TMF 文件夹`,
+    const children =
+      f.kind === 'folder' ? myFiles.filter((x) => x.parentId === f.id && x.status !== 'archived') : []
+    const plan = planArchive({
+      file: f,
+      children,
+      files: state.files,
+      catalogs: state.catalogs,
+      routes: state.archiveRoutes,
+      uploader: PM_USER.name,
     })
+    if (!plan) {
+      toast.error('未找到 STUDY TMF 目录', { description: '请先在 STUDY TMF 页创建目录后再归档' })
+      return
+    }
+    dispatch({ type: 'archiveRouted', newFolders: plan.newFolders, entries: plan.entries })
+
+    const okLines = [...plan.groups.entries()].map(([p, n]) => `已归档至 STUDY TMF / ${p}（${n} 个文件）`)
+    /* R27 PM 选定目标文件夹直通：siteGroups 行同样展示（路径形如「研究者简历 / 2 个文件」） */
+    okLines.push(...[...plan.siteGroups.entries()].map(([p, n]) => `已归档至 ${p}（${n} 个文件）`))
+    if (f.kind === 'folder') okLines.unshift(`文件夹「${f.name}」已归档至 ${f.projectNo} 的 STUDY TMF 文件夹`)
+    if (okLines.length > 0) toast.success('归档成功', { description: okLines.join('；') })
+    if (plan.unsorted > 0) {
+      toast.warning(`${plan.unsorted} 个文件进入「99 待分拣」`, {
+        description: '未识别文档类型或无匹配路由，已归档至 STUDY TMF / 99 待分拣，需人工分拣',
+      })
+    }
+  }
+
+  /* ===== 99 待分拣队列：已归档但处于 99 分区的具体文件（文件夹不计，随全局项目筛选） ===== */
+  const fileById = useMemo(() => new Map(state.files.map((f) => [f.id, f])), [state.files])
+  const unsortedFiles = useMemo(
+    () =>
+      state.files.filter(
+        (f) =>
+          f.kind !== 'folder' &&
+          f.status === 'archived' &&
+          matchProject(f.projectNo) &&
+          inUnsortedZone(f, fileById),
+      ),
+    [state.files, fileById, project],
+  )
+  /* 归位弹窗各行分区草稿：默认按该文件 docType 查路由表，查不到默认 01 */
+  const [homeZones, setHomeZones] = useState<Record<string, string>>({})
+  const defaultZoneOf = (f: TmfFile): string => {
+    const a = analyzeName(f.name)
+    const r = a.matched ? state.archiveRoutes.find((x) => x.docType === a.docType) : undefined
+    return r?.zone ?? TMF_ZONES[0]
+  }
+  /* 归位：移入 项目 STUDY TMF / 所选分区 / 文档类型文件夹（识别不了直接放分区下），并离开 99 待分拣 */
+  const rehome = (f: TmfFile) => {
+    const zone = homeZones[f.id] ?? defaultZoneOf(f)
+    if (zone === UNSORTED_ZONE) {
+      toast.warning('该文件已在「99 待分拣」中，请选择其他分区')
+      return
+    }
+    const plan = planRehome({ file: f, zone, files: state.files, catalogs: state.catalogs, uploader: PM_USER.name })
+    if (!plan) {
+      toast.error('未找到 STUDY TMF 目录', { description: '请先在 STUDY TMF 页创建目录后再归位' })
+      return
+    }
+    dispatch({ type: 'archiveRouted', newFolders: plan.newFolders, entries: plan.entries })
+    setHomeZones((prev) => {
+      const next = { ...prev }
+      delete next[f.id]
+      return next
+    })
+    const path = [...plan.groups.keys()][0] ?? zone
+    toast.success('归位成功', { description: `${f.name} 已归位至 STUDY TMF / ${path}` })
+  }
+
+  /* 归档规则：新增一条路由（文档类型下拉含全部标准类型 + 自定义输入） */
+  const addRule = () => {
+    const docType = ruleType === CUSTOM_TYPE ? ruleCustom.trim() : ruleType
+    if (!docType) {
+      toast.warning('请输入自定义文档类型名称')
+      return
+    }
+    if (state.archiveRoutes.some((r) => r.docType === docType)) {
+      toast.warning(`「${docType}」已存在路由，可直接在列表中修改分区`)
+      return
+    }
+    dispatch({ type: 'addArchiveRoute', route: { id: nextId('ar'), docType, zone: ruleZone } })
+    setRuleType(DOC_TYPE_NAMES[0])
+    setRuleCustom('')
+    setRuleZone(TMF_ZONES[0])
+    toast.success(`已添加路由：${docType} → ${ruleZone}`)
   }
 
   const addFolder = () => {
@@ -79,8 +181,23 @@ export default function Transfer() {
   }
 
   const commitRename = () => {
-    if (renamingId && renameText.trim()) {
-      dispatch({ type: 'renameFile', id: renamingId, name: renameText.trim() })
+    const name = renameText.trim()
+    if (renamingId && name) {
+      /* R27 同名冲突提示：同一父级下（同上传人）已有同名文件夹时阻止并保持编辑态 */
+      const cur = state.files.find((f) => f.id === renamingId)
+      const dup = state.files.some(
+        (f) =>
+          f.id !== renamingId &&
+          f.kind === 'folder' &&
+          f.parentId === cur?.parentId &&
+          f.uploader === cur?.uploader &&
+          f.name === name,
+      )
+      if (dup) {
+        toast.warning('已存在同名文件夹', { description: '同一位置下文件夹名称不能重复，请换一个名称' })
+        return
+      }
+      dispatch({ type: 'renameFile', id: renamingId, name })
     }
     setRenamingId(null)
   }
@@ -136,12 +253,26 @@ export default function Transfer() {
     setProjPicker(null)
   }
 
-  /* 从本地电脑上传文件到当前文件夹（继承文件夹的项目编号，归档时跟随） */
-  const importLocal = (fileList: FileList | null) => {
-    if (!fileList || !openFolder) return
-    const files: TmfFile[] = [...fileList].map((fl) => ({
+  /* 从本地电脑上传文件到当前文件夹（继承文件夹的项目编号，归档时跟随）；上传即自动命名——
+     命中词典按「命名规则」模板渲染（未命中保留原名），同文档新版本自动递增并关联历史版本（版本链）。
+     R34：接受 File[]（页面拖拽）或 FileList（隐藏 input） */
+  const importLocal = (input: FileList | File[] | null) => {
+    const arr = input ? Array.from(input) : []
+    if (arr.length === 0 || !openFolder) return
+    const results = autoNameBatch(
+      arr.map((fl) => fl.name.replace(/\.[^.]+$/, '')),
+      state.files.map((f) => f.name),
+      {
+        files: state.files,
+        projectNo: openFolder.projectNo,
+        center: openFolder.center,
+        template: state.namingTemplate,
+        today: todayStr(),
+      },
+    )
+    const files: TmfFile[] = arr.map((fl, i) => ({
       id: nextId('f'),
-      name: fl.name.replace(/\.[^.]+$/, ''),
+      name: results[i].name,
       kind: 'pdf' as const,
       projectNo: openFolder.projectNo,
       center: openFolder.center,
@@ -150,10 +281,17 @@ export default function Transfer() {
       size: fmtSize(fl.size),
       status: 'uploaded' as const,
       parentId: openFolder.id,
+      ...(results[i].versionOf ? { versionOf: results[i].versionOf } : {}),
     }))
     dispatch({ type: 'addFiles', files })
-    toast.success(`已上传 ${files.length} 个文件至「${openFolder.name}」`, {
-      description: `项目编号：${openFolder.projectNo}`,
+    notifyAutoName({
+      title: `已上传 ${files.length} 个文件至「${openFolder.name}」`,
+      renamed: results.filter((r) => r.renamed).map((r) => `${r.from} → ${r.name}`),
+      unmatched: results.filter((r) => !r.matched).length,
+      extra: `项目编号：${openFolder.projectNo}`,
+      versionNotes: results
+        .filter((r) => r.prevVersion)
+        .map((r) => `检测到历史版本 ${r.prevVersion}，已命名为 ${r.name} 并关联历史版本`),
     })
   }
 
@@ -170,25 +308,26 @@ export default function Transfer() {
             if (e.key === 'Enter') commitRename()
             if (e.key === 'Escape') setRenamingId(null)
           }}
-          className="w-48 rounded-md border border-teal-300 px-2 py-1 text-sm text-gray-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+          className="w-48 rounded-md border border-teal-300 px-2 py-1 text-center text-sm text-gray-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
         />
       )
     }
     return (
-      <span className="flex items-center justify-center gap-2.5">
+      <span className="flex min-w-0 items-center justify-center gap-2.5">
         <FileTypeIcon kind={f.kind} />
         {f.kind === 'folder' ? (
           <button
             type="button"
             onClick={() => (deleteMode ? toggleDel(f.id, !deleteSel.has(f.id)) : setOpenFolder(f))}
             title={deleteMode ? '点击勾选/取消' : '点击打开文件夹'}
-            className="text-gray-700 underline decoration-teal-300 decoration-dotted underline-offset-4 transition-colors hover:text-teal-600"
+            className="truncate text-gray-700 underline decoration-teal-300 decoration-dotted underline-offset-4 transition-colors hover:text-teal-600"
           >
             {f.name}
           </button>
         ) : (
-          <span className="text-gray-700">{f.name}</span>
+          <span className="truncate text-gray-700">{f.name}</span>
         )}
+        <VersionHist file={f} />
         {f.kind === 'folder' && (
           <button
             type="button"
@@ -197,7 +336,7 @@ export default function Transfer() {
               setRenamingId(f.id)
               setRenameText(f.name)
             }}
-            className="text-gray-300 transition-colors hover:text-teal-500"
+            className="shrink-0 text-gray-300 transition-colors hover:text-teal-500"
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -206,15 +345,15 @@ export default function Transfer() {
     )
   }
 
-  /* 文件与文件夹均可归档：文件夹级联归档其全部子文件 */
+  /* 文件与文件夹均可归档：按归档规则自动路由到 STUDY TMF 分区；文件夹子文件各自路由 */
   const statusCell = (f: TmfFile) => (
     <button
       type="button"
       onClick={() => archive(f)}
       title={
         f.kind === 'folder'
-          ? `文件夹整体归档至 ${f.projectNo} 的 STUDY TMF 文件夹`
-          : `归档至 ${f.projectNo} 的 STUDY TMF 文件夹`
+          ? `文件夹整体归档：子文件按归档规则各自路由至 ${f.projectNo} 的 STUDY TMF 分区`
+          : `按归档规则归档至 ${f.projectNo} 的 STUDY TMF 对应分区`
       }
       className="inline-flex items-center rounded-md bg-teal-500 px-3 py-1.5 text-xs text-white transition-colors hover:bg-teal-600"
     >
@@ -244,13 +383,13 @@ export default function Transfer() {
     <DataTable>
       <thead>
         <tr>
-          {deleteMode && <Th sortable={false}>选择</Th>}
-          <Th sortable={false}>文件名称</Th>
-          <Th>上传日期</Th>
-          <Th>文件大小</Th>
-          <Th>项目编号</Th>
-          <Th sortable={false}>智能处理</Th>
-          <Th sortable={false}>状态</Th>
+          {deleteMode && <Th sortable={false} className="w-12">选择</Th>}
+          <NameTh className="w-[26%]">文件名称</NameTh>
+          <Th className="w-36">上传日期</Th>
+          <Th className="w-28">文件大小</Th>
+          <Th className="w-40">项目编号</Th>
+          <Th sortable={false} className="w-52">智能处理</Th>
+          <Th sortable={false} className="w-28">状态</Th>
         </tr>
       </thead>
       <tbody>
@@ -324,6 +463,31 @@ export default function Transfer() {
         </DataTable>
       </PageCard>
 
+      {/* R34 页面级拖拽：本地文件/文件夹拖到文件上传列表区域——文件夹钻取视图内直接入当前文件夹（自动命名），
+          顶层列表则打开上传弹窗进入暂存确认流（预选文件已带入） */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragOver(true)
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragOver(false)
+          void (async () => {
+            const payload = await readDroppedItems(e.dataTransfer)
+            if (payload.items.length === 0) return
+            if (openFolder) {
+              importLocal(payload.items.map((p) => p.file))
+              return
+            }
+            setUploadPick(null)
+            setUploadPreset(payload)
+            setUploadOpen(true)
+          })()
+        }}
+        className={cn('rounded-2xl transition-all', dragOver && 'bg-teal-50/40 ring-2 ring-teal-300 ring-offset-2')}
+      >
       <PageCard
         title={
           openFolder ? (
@@ -374,15 +538,81 @@ export default function Transfer() {
               </>
             ) : (
               <>
+                <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={() => setRulesOpen(true)}>
+                  <Route className="h-3.5 w-3.5" /> 归档规则
+                </Button>
+                {/* 命名规则：CRA 上传确认命名与 PM 上传自动命名共用的文件名模板 */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1 text-xs"
+                  onClick={() => setNamingOpen(true)}
+                >
+                  <FilePenLine className="h-3.5 w-3.5" /> 命名规则
+                </Button>
+                {/* 99 待分拣队列：琥珀色徽标计数（为 0 时隐藏徽标，按钮仍可见） */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="relative h-8 gap-1 text-xs"
+                  onClick={() => setUnsortedOpen(true)}
+                >
+                  <Inbox className="h-3.5 w-3.5" /> 待分拣
+                  {unsortedFiles.length > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-medium text-white">
+                      {unsortedFiles.length}
+                    </span>
+                  )}
+                </Button>
+                {/* R34：只建空文件夹（建完行内命名） */}
                 <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={addFolder}>
-                  <Plus className="h-3.5 w-3.5" /> 新建
+                  <Plus className="h-3.5 w-3.5" /> 新建文件夹
                 </Button>
                 <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={enterDelete}>
                   <Trash2 className="h-3.5 w-3.5" /> 删除
                 </Button>
-                <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={() => setUploadOpen(true)}>
-                  <Upload className="h-3.5 w-3.5" /> 上传
-                </Button>
+                {/* R34：上传改下拉按钮——上传文件 / 上传文件夹直达 UploadDialog 对应模式 */}
+                <span className="relative">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1 text-xs"
+                    onClick={() => setUploadMenu((v) => !v)}
+                  >
+                    <Upload className="h-3.5 w-3.5" /> 上传 <ChevronDown className="h-3 w-3" />
+                  </Button>
+                  {uploadMenu && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setUploadMenu(false)} />
+                      <div className="absolute right-0 z-20 mt-1 w-36 rounded-lg border border-gray-100 bg-white p-1 shadow-lg">
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-xs text-gray-600 transition-colors hover:bg-teal-50 hover:text-teal-700"
+                          onClick={() => {
+                            setUploadMenu(false)
+                            setUploadPreset(null)
+                            setUploadPick('files')
+                            setUploadOpen(true)
+                          }}
+                        >
+                          <FileUp className="h-3.5 w-3.5 text-teal-500" /> 上传文件
+                        </button>
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-xs text-gray-600 transition-colors hover:bg-sky-50 hover:text-sky-700"
+                          onClick={() => {
+                            setUploadMenu(false)
+                            setUploadPreset(null)
+                            setUploadPick('dir')
+                            setUploadOpen(true)
+                          }}
+                        >
+                          <FolderUp className="h-3.5 w-3.5 text-sky-500" /> 上传文件夹
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </span>
               </>
             )}
           </div>
@@ -390,6 +620,7 @@ export default function Transfer() {
       >
         {openFolder ? fileTable(childFiles) : fileTable(topFiles)}
       </PageCard>
+      </div>
 
       {/* 文件夹内上传：来源为个人电脑本地文件 */}
       <input
@@ -403,8 +634,168 @@ export default function Transfer() {
         }}
       />
 
-      <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} uploader={PM_USER.name} />
+      <UploadDialog
+        open={uploadOpen}
+        onOpenChange={(o) => {
+          setUploadOpen(o)
+          if (!o) {
+            setUploadPick(null)
+            setUploadPreset(null)
+          }
+        }}
+        uploader={PM_USER.name}
+        autoPick={uploadPick}
+        preset={uploadPreset}
+      />
       <SmartProcessDialog target={smart} onClose={() => setSmart(null)} />
+
+      {/* 99 待分拣队列弹窗：逐文件选择分区归位，全部归位完自动刷新计数 */}
+      <Dialog open={unsortedOpen} onOpenChange={setUnsortedOpen}>
+        <DialogContent showCloseButton={false} className="gap-0 overflow-hidden rounded-2xl border-0 p-0 sm:max-w-2xl">
+          <DialogTitle className="sr-only">待分拣文件</DialogTitle>
+          <ModalHeader title="待分拣文件" onClose={() => setUnsortedOpen(false)} />
+          <div className="max-h-[calc(85vh-52px)] overflow-y-auto p-5">
+            <p className="mb-4 text-xs leading-5 text-gray-400">
+              以下文件归档时未识别出文档类型或无匹配路由，暂存于「99 待分拣」；选择目标分区后点击「归位」即可移入
+              STUDY TMF 对应分区。
+            </p>
+            <div className="overflow-x-auto rounded-xl border border-gray-100 p-4 shadow-sm">
+              <DataTable>
+                <thead>
+                  <tr>
+                    <NameTh>文件名称</NameTh>
+                    <Th sortable={false} className="w-36">项目编号</Th>
+                    <Th sortable={false} className="w-72">归位操作</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unsortedFiles.map((f) => (
+                    <Tr key={f.id}>
+                      <NameTd>
+                        <span className="flex min-w-0 items-center gap-2.5">
+                          <FileTypeIcon kind={f.kind} />
+                          <span className="truncate text-gray-700">{f.name}</span>
+                        </span>
+                      </NameTd>
+                      <Td>{f.projectNo}</Td>
+                      <Td>
+                        <span className="inline-flex items-center gap-2">
+                          <ToolbarSelect
+                            value={homeZones[f.id] ?? defaultZoneOf(f)}
+                            onChange={(v) => setHomeZones((prev) => ({ ...prev, [f.id]: v }))}
+                            options={[...TMF_ZONES]}
+                          />
+                          <Button
+                            size="sm"
+                            className="h-8 bg-teal-600 text-xs text-white hover:bg-teal-700"
+                            onClick={() => rehome(f)}
+                          >
+                            归位
+                          </Button>
+                        </span>
+                      </Td>
+                    </Tr>
+                  ))}
+                  {unsortedFiles.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="py-12 text-center text-sm text-gray-400">
+                        没有待分拣的文件
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </DataTable>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 命名规则配置弹窗：抽取为共享组件 NamingRuleDialog（目录创建弹窗「命名设置」同款） */}
+      <NamingRuleDialog open={namingOpen} onOpenChange={setNamingOpen} />
+
+      {/* 归档规则配置弹窗：文档类型 → STUDY TMF 分区 路由表（默认路由同样可编辑/删除） */}
+      <Dialog open={rulesOpen} onOpenChange={setRulesOpen}>
+        <DialogContent showCloseButton={false} className="gap-0 overflow-hidden rounded-2xl border-0 p-0 sm:max-w-2xl">
+          <DialogTitle className="sr-only">归档规则</DialogTitle>
+          <ModalHeader title="归档规则" onClose={() => setRulesOpen(false)} />
+          <div className="max-h-[calc(85vh-52px)] overflow-y-auto p-5">
+            <p className="mb-4 text-xs leading-5 text-gray-400">
+              归档时按文件名识别文档类型，自动归入对应项目 STUDY TMF 的「分区 / 文档类型」文件夹；
+              未识别或无匹配路由的文件进入「99 待分拣」，需人工分拣。
+            </p>
+            <div className="overflow-x-auto rounded-xl border border-gray-100 p-4 shadow-sm">
+              <DataTable>
+                <thead>
+                  <tr>
+                    <Th sortable={false}>文档类型</Th>
+                    <Th sortable={false} className="w-48">归档分区</Th>
+                    <Th sortable={false} className="w-20">操作</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.archiveRoutes.map((r) => (
+                    <Tr key={r.id}>
+                      <Td>{r.docType}</Td>
+                      <Td>
+                        <ToolbarSelect
+                          value={r.zone}
+                          onChange={(v) => dispatch({ type: 'updateArchiveRoute', id: r.id, patch: { zone: v } })}
+                          options={[...TMF_ZONES]}
+                        />
+                      </Td>
+                      <Td>
+                        <button
+                          type="button"
+                          title="删除该路由"
+                          onClick={() => dispatch({ type: 'removeArchiveRoute', id: r.id })}
+                          className="text-gray-300 transition-colors hover:text-red-500"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </Td>
+                    </Tr>
+                  ))}
+                  {/* 新增路由：文档类型下拉（全部标准类型 + 自定义输入）+ 分区下拉 */}
+                  <Tr>
+                    <Td>
+                      <span className="inline-flex items-center gap-2">
+                        <ToolbarSelect
+                          value={ruleType}
+                          onChange={setRuleType}
+                          options={[
+                            ...DOC_TYPE_NAMES.map((t) => ({ label: t, value: t })),
+                            { label: '自定义…', value: CUSTOM_TYPE },
+                          ]}
+                        />
+                        {ruleType === CUSTOM_TYPE && (
+                          <input
+                            value={ruleCustom}
+                            onChange={(e) => setRuleCustom(e.target.value)}
+                            placeholder="输入类型名称"
+                            className="w-32 rounded-md border border-teal-300 px-2 py-1 text-center text-sm outline-none focus:border-teal-500"
+                          />
+                        )}
+                      </span>
+                    </Td>
+                    <Td>
+                      <ToolbarSelect value={ruleZone} onChange={setRuleZone} options={[...TMF_ZONES]} />
+                    </Td>
+                    <Td>
+                      <Button
+                        size="sm"
+                        className="h-8 gap-1 bg-teal-600 text-xs text-white hover:bg-teal-700"
+                        onClick={addRule}
+                      >
+                        <Plus className="h-3.5 w-3.5" /> 添加
+                      </Button>
+                    </Td>
+                  </Tr>
+                </tbody>
+              </DataTable>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 文件夹项目编号更换弹窗 */}
       <Dialog open={!!projPicker} onOpenChange={(o) => !o && setProjPicker(null)}>

@@ -15,7 +15,7 @@ import {
 } from 'recharts'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { ModalHeader } from '@/components/CatalogDialog'
-import { PageCard, DataTable, Th, Td, Tr, FileTypeIcon } from '@/components/common'
+import { PageCard, DataTable, Th, Td, Tr, FileTypeIcon, NameTh } from '@/components/common'
 import { useStore, type FileStatus, type Role } from '@/store'
 import { cn } from '@/lib/utils'
 
@@ -281,9 +281,9 @@ export default function AdminDashboard() {
           <thead>
             <tr>
               <Th sortable={false}>登录时间</Th>
-              <Th sortable={false}>登录账号</Th>
-              <Th sortable={false}>姓名</Th>
-              <Th sortable={false}>角色</Th>
+              <Th sortable={false} className="w-40">登录账号</Th>
+              <Th sortable={false} className="w-28">姓名</Th>
+              <Th sortable={false} className="w-24">角色</Th>
             </tr>
           </thead>
           <tbody>
@@ -347,20 +347,20 @@ export default function AdminDashboard() {
               <DataTable>
                 <thead>
                   <tr>
-                    <Th sortable={false}>文件名称</Th>
-                    <Th sortable={false}>项目编号</Th>
-                    <Th sortable={false}>研究中心</Th>
-                    <Th sortable={false}>上传人员</Th>
-                    <Th sortable={false}>上传日期</Th>
-                    <Th sortable={false}>文件大小</Th>
-                    <Th sortable={false}>状态</Th>
+                    <NameTh className="w-[24%]">文件名称</NameTh>
+                    <Th sortable={false} className="w-40">项目编号</Th>
+                    <Th sortable={false} className="w-40">研究中心</Th>
+                    <Th sortable={false} className="w-32">上传人员</Th>
+                    <Th sortable={false} className="w-36">上传日期</Th>
+                    <Th sortable={false} className="w-28">文件大小</Th>
+                    <Th sortable={false} className="w-28">状态</Th>
                   </tr>
                 </thead>
               <tbody>
                 {drillFiles.map((f) => (
                   <Tr key={f.id} className={cn(f.parentId && 'bg-gray-50/50')}>
-                    <Td className="text-left">
-                      <span className="inline-flex items-center gap-2 pl-4">
+                    <Td>
+                      <span className="inline-flex items-center gap-2">
                         <FileTypeIcon kind={f.kind} />
                         <span className="text-gray-700">
                           {f.parentId && <span className="mr-1 text-gray-300">└</span>}

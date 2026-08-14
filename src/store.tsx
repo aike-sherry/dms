@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useReducer, type Dispatch, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from 'react'
 import { studyFolders, siteFolders, submissionFiles, submissionHospitals, submissionOverviewRows } from '@/data/mock'
+import { DEFAULT_ZONE_BY_DOC_TYPE, DEFAULT_NAMING_TEMPLATE } from '@/lib/smartDoc'
 
 /* ================= 类型 ================= */
 
@@ -25,6 +26,11 @@ export interface TmfFile {
   folderId?: string
   /** 所属传输文件夹（文件在文件夹内时的父级 id） */
   parentId?: string
+  /** 版本链：上一版本文件 id（上传时同文档新版本自动递增命名并关联历史版本） */
+  versionOf?: string
+  /** CRA 确认命名时选中的目标文件夹 id（PM 在该中心 SITE TMF 下已建的文件夹）；
+      审核通过后直接归档进该文件夹、跳过路由表；选的是回退标准类型时无此字段 */
+  targetFolderId?: string
 }
 
 export interface Catalog {
@@ -49,6 +55,8 @@ export interface Submission {
   uploadDate: string
   size: string
   published: boolean
+  /** 目标递交时限（新建递交时设置；发布时随概况矩阵行展示。上传渠道创建的递交无此字段） */
+  deadline?: string
 }
 
 /** 递交概况矩阵行：每家医院的递交日期由执行人员录入，dates 以医院名为键 */
@@ -60,6 +68,27 @@ export interface SubmissionScheduleRow {
   dates: Record<string, string>
 }
 
+/** 归档路由：文档类型 → STUDY TMF 分区（PM TRANSFER「归档规则」维护） */
+export interface ArchiveRoute {
+  id: string
+  docType: string
+  zone: string
+}
+
+/** R32 研究中心注册表：全系统唯一中心数据源（首页「研究中心管理」维护）。
+    cra 为临床监查员姓名（取自后台执行人员账号），可为空（未分配） */
+export interface Center {
+  id: string
+  name: string
+  projectNo: string
+  cra: string
+}
+
+/** 默认归档路由：系统配置，不受 DEMO_MODE 影响，始终加载 */
+export const DEFAULT_ARCHIVE_ROUTES: ArchiveRoute[] = Object.entries(DEFAULT_ZONE_BY_DOC_TYPE).map(
+  ([docType, zone], i) => ({ id: `ar${i + 1}`, docType, zone }),
+)
+
 export interface State {
   authed: boolean
   role: Role
@@ -69,10 +98,16 @@ export interface State {
   catalogs: Catalog[]
   submissions: Submission[]
   submissionSchedule: SubmissionScheduleRow[]
+  /** 归档路由表：文档类型 → STUDY TMF 分区 */
+  archiveRoutes: ArchiveRoute[]
+  /** 命名规则模板（PM TRANSFER「命名规则」配置；CRA 上传确认命名与 PM 上传自动命名按模板渲染） */
+  namingTemplate: string
   /** 收藏：文件 id → 收藏日期（仅具体文件可收藏，文件夹不可） */
   favorites: Record<string, string>
-  /** 研究中心 → CRA 姓名映射（首页 CRA 分配模块维护，全局 CRA 列联动） */
+  /** 研究中心 → CRA 姓名映射（R32 前首页 CRA 分配模块的遗留存储；R32 起仅用于向 centers 注册表迁移，不再作为读取源） */
   craMap: Record<string, string>
+  /** R32 研究中心注册表：中心名称/项目编号/CRA 的独立配置数据，持久化；目录创建、递交矩阵、上传弹窗等全系统中心选项的唯一数据源 */
+  centers: Center[]
   /** 项目编号 → 项目经理姓名映射（首页 PM 分配模块维护，全局 PM 列联动） */
   pmMap: Record<string, string>
   /** 后台管理：账户配置（登录校验、激活/冻结/关闭、重置密码） */
@@ -213,12 +248,41 @@ export const CENTER_CRA: Record<string, string> = {
   上海瑞金医院: '王金',
   江苏大学附属医院: '王金',
 }
-/** CRA 分配键：项目编号 + 研究中心 双维度；无项目编号时退化为仅中心 */
+/** CRA 分配键：项目编号 + 研究中心 双维度；无项目编号时退化为仅中心（R32 起仅旧数据迁移使用） */
 export const craKeyOf = (center: string, projectNo?: string) =>
   projectNo ? `${projectNo}|${center}` : center
-/** 查询某中心（可指定项目）的临床监查员：优先「项目|中心」精确匹配，回退中心级配置，最后回退范本姓名 */
+/** 查询某中心（可指定项目）的临床监查员：优先「项目|中心」精确匹配，回退中心级配置，最后回退范本姓名（遗留：仅迁移用） */
 export const craOfCenter = (craMap: Record<string, string>, center: string, projectNo?: string) =>
   (projectNo ? craMap[craKeyOf(center, projectNo)] : undefined) ?? craMap[center] ?? '王金'
+
+/** 项目编号前缀双向匹配（ON101 与 ON101CL103 互认；空串匹配一切） */
+export const projPrefixMatch = (a: string, b: string) =>
+  !a || !b || a === b || a.startsWith(b) || b.startsWith(a)
+
+/** R32 起 CRA 列的唯一查询口：从研究中心注册表取临床监查员——优先「同项目 + 同名」精确匹配，
+    回退同名任意项目的配置；注册表中不存在该中心返回 ''（调用处渲染为 —） */
+export const craNameOf = (centers: Center[], center: string, projectNo?: string) =>
+  (projectNo ? centers.find((c) => c.name === center && projPrefixMatch(c.projectNo, projectNo))?.cra : undefined) ??
+  centers.find((c) => c.name === center)?.cra ??
+  ''
+
+/** R32 旧数据迁移：从 craMap（「项目|中心」复合键，值=CRA）+ 已有 SITE 目录（projectNo+center，CRA 留空）
+    派生注册表，按「项目编号|中心名」去重；注册表已存在（persisted.centers）时不走此逻辑 */
+function deriveCenters(craMap: Record<string, string>, catalogs: Catalog[]): Center[] {
+  const map = new Map<string, Center>()
+  for (const k of Object.keys(craMap)) {
+    const [p, name] = k.includes('|') ? k.split('|') : ['', k]
+    if (!name) continue
+    map.set(`${p}|${name}`, { id: nextId('ct'), name, projectNo: p, cra: craMap[k] ?? '' })
+  }
+  for (const c of catalogs) {
+    if (c.kind === 'site' && c.center) {
+      const key = `${c.projectNo}|${c.center}`
+      if (!map.has(key)) map.set(key, { id: nextId('ct'), name: c.center, projectNo: c.projectNo, cra: '' })
+    }
+  }
+  return [...map.values()]
+}
 
 /** 各研究编号的项目经理（PM）；演示范本统一为「王金」，可在首页 PM 分配模块调整 */
 export const PROJECT_PM: Record<string, string> = {
@@ -481,21 +545,47 @@ const DEMO_MODE = false
 function initialState(): State {
   const auth = readAuth()
   const persisted = readData()
+  const submissions = persisted?.submissions ?? (DEMO_MODE ? seedSubmissions : [])
+  const baseSchedule = persisted?.submissionSchedule ?? (DEMO_MODE ? seedSubmissionSchedule : [])
+  /* R29 老数据迁移：R29 之前发布的递交只翻 published 标志、概况矩阵无行——加载时对「已发布但矩阵缺行」
+     的递交按递交记录派生补全（publishDate 回退为上传日期，deadline 取递交上的时限或空）。幂等：
+     行 id = 递交 id，按 id 或主题匹配到既有行则跳过 */
+  const derivedSchedule = submissions
+    .filter((s) => s.published && !baseSchedule.some((r) => r.id === s.id || r.topic === s.topic))
+    .map((s) => ({
+      id: s.id,
+      topic: s.topic,
+      publishDate: s.uploadDate,
+      deadline: s.deadline ?? '',
+      dates: {} as Record<string, string>,
+    }))
+  const catalogs = persisted?.catalogs ?? (DEMO_MODE ? seedCatalogs : [])
+  const craMap = persisted?.craMap ?? (DEMO_MODE ? { ...CENTER_CRA } : {})
   return {
     authed: auth.authed,
     role: auth.role,
     activeProject: '全部',
     files: persisted?.files ?? (DEMO_MODE ? seedFiles : []),
-    catalogs: persisted?.catalogs ?? (DEMO_MODE ? seedCatalogs : []),
-    submissions: persisted?.submissions ?? (DEMO_MODE ? seedSubmissions : []),
-    submissionSchedule: persisted?.submissionSchedule ?? (DEMO_MODE ? seedSubmissionSchedule : []),
+    catalogs,
+    submissions,
+    submissionSchedule: [...baseSchedule, ...derivedSchedule],
+    /* 归档路由为系统配置：不受 DEMO_MODE 影响，无持久化时回退默认路由表 */
+    archiveRoutes: persisted?.archiveRoutes ?? DEFAULT_ARCHIVE_ROUTES,
+    /* 命名规则模板：系统配置，不受 DEMO_MODE 影响，无持久化时回退默认模板 */
+    namingTemplate: persisted?.namingTemplate ?? DEFAULT_NAMING_TEMPLATE,
     favorites: persisted?.favorites ?? (DEMO_MODE ? seedFavorites : {}),
-    craMap: persisted?.craMap ?? (DEMO_MODE ? { ...CENTER_CRA } : {}),
+    craMap,
+    /* R32 注册表迁移：持久化数据带 centers 字段直接用；否则从旧 craMap + 已有 SITE 目录派生去重（幂等，仅首启执行一次） */
+    centers: persisted?.centers ?? deriveCenters(craMap, catalogs),
     pmMap: persisted?.pmMap ?? (DEMO_MODE ? { ...PROJECT_PM } : {}),
     accounts: (persisted?.accounts ?? seedAccounts).map((a) => {
-      /* 旧版本状态迁移：启用→激活、停用→冻结 */
+      /* 旧版本状态迁移：启用→激活、停用→冻结；旧数据无密码字段 → 回退默认密码 123456 */
       const s = a.status as string
-      return { ...a, status: (s === '启用' ? '激活' : s === '停用' ? '冻结' : s) as Account['status'] }
+      return {
+        ...a,
+        password: a.password || '123456',
+        status: (s === '启用' ? '激活' : s === '停用' ? '冻结' : s) as Account['status'],
+      }
     }),
     accountDeleted: persisted?.accountDeleted ?? 0,
     customers: persisted?.customers ?? (DEMO_MODE ? seedCustomers : []),
@@ -513,10 +603,16 @@ interface PersistedData {
   catalogs: Catalog[]
   submissions: Submission[]
   submissionSchedule: SubmissionScheduleRow[]
+  /** 归档路由表；旧版本持久化数据可能缺失，读取时回退默认路由 */
+  archiveRoutes?: ArchiveRoute[]
+  /** 命名规则模板；旧版本持久化数据可能缺失，读取时回退默认模板 */
+  namingTemplate?: string
   /** 收藏映射；旧版本持久化数据可能缺失，读取时回退空对象 */
   favorites?: Record<string, string>
-  /** CRA 分配映射；旧版本持久化数据可能缺失，读取时回退种子 */
+  /** CRA 分配映射（遗留字段；R32 起仅用于向 centers 迁移） */
   craMap?: Record<string, string>
+  /** R32 研究中心注册表；旧版本持久化数据缺失时由 craMap + SITE 目录派生 */
+  centers?: Center[]
   /** PM 分配映射；旧版本持久化数据可能缺失，读取时回退种子 */
   pmMap?: Record<string, string>
   /** 后台管理数据；旧版本持久化数据可能缺失，读取时回退种子 */
@@ -540,8 +636,8 @@ function readData(): PersistedData | null {
     ) {
       return null
     }
-    /* id 计数器推进到持久化数据中的最大值，避免刷新后新 id 冲突 */
-    for (const f of parsed.files) {
+    /* id 计数器推进到持久化数据中的最大值，避免刷新后新 id 冲突（R32：目录/注册表 id 同样占用计数器） */
+    for (const f of [...parsed.files, ...parsed.catalogs, ...(parsed.centers ?? [])]) {
       const m = /-(\d+)$/.exec(f.id)
       if (m) uid = Math.max(uid, Number(m[1]))
     }
@@ -551,25 +647,25 @@ function readData(): PersistedData | null {
   }
 }
 
-function writeData(state: State) {
-  try {
-    const data: PersistedData = {
-      files: state.files,
-      catalogs: state.catalogs,
-      submissions: state.submissions,
-      submissionSchedule: state.submissionSchedule,
-      favorites: state.favorites,
-      craMap: state.craMap,
-      pmMap: state.pmMap,
-      accounts: state.accounts,
-      accountDeleted: state.accountDeleted,
-      customers: state.customers,
-      loginLogs: state.loginLogs,
-    }
-    localStorage.setItem(DATA_KEY, JSON.stringify(data))
-  } catch {
-    /* 存储满或不可用时静默失败，不影响内存态 */
+/** 序列化持久化载荷（R35：写入守卫与跨标签同步共用） */
+function serializeData(state: State): string {
+  const data: PersistedData = {
+    files: state.files,
+    catalogs: state.catalogs,
+    submissions: state.submissions,
+    submissionSchedule: state.submissionSchedule,
+    archiveRoutes: state.archiveRoutes,
+    namingTemplate: state.namingTemplate,
+    favorites: state.favorites,
+    craMap: state.craMap,
+    centers: state.centers,
+    pmMap: state.pmMap,
+    accounts: state.accounts,
+    accountDeleted: state.accountDeleted,
+    customers: state.customers,
+    loginLogs: state.loginLogs,
   }
+  return JSON.stringify(data)
 }
 
 /* ================= Reducer ================= */
@@ -579,17 +675,25 @@ export type Action =
   | { type: 'logout' }
   | { type: 'setRole'; role: Role }
   | { type: 'setActiveProject'; project: string }
+  | { type: 'setNamingTemplate'; template: string }
   | { type: 'addFiles'; files: TmfFile[] }
   | { type: 'renameFile'; id: string; name: string }
   | { type: 'submitFiles'; ids: string[] }
   | { type: 'approveFile'; id: string }
   | { type: 'archiveFile'; id: string }
+  /** PM TRANSFER 智能归档：按归档路由把文件归入 catalog/分区/文档类型 文件夹；分区文件夹不存在时随 newFolders 一并创建 */
+  | { type: 'archiveRouted'; newFolders: TmfFile[]; entries: { id: string; folderId: string; parentId?: string }[] }
+  | { type: 'addArchiveRoute'; route: ArchiveRoute }
+  | { type: 'updateArchiveRoute'; id: string; patch: Partial<Omit<ArchiveRoute, 'id'>> }
+  | { type: 'removeArchiveRoute'; id: string }
   | { type: 'rejectFile'; id: string; reason: string }
   | { type: 'reuploadFile'; id: string }
   | { type: 'removeFile'; id: string }
   | { type: 'removeFiles'; ids: string[] }
   | { type: 'setFileProject'; id: string; projectNo: string }
   | { type: 'addCatalogs'; catalogs: Catalog[] }
+  /** R28 目录行内重命名（STUDY/SITE TMF 顶层目录列表）：改名持久化，引用处（钻取面包屑/钻取上传弹窗归属行）实时同步 */
+  | { type: 'renameCatalog'; id: string; name: string }
   | { type: 'addSubmissions'; submissions: Submission[] }
   | { type: 'publishSubmission'; id: string }
   | { type: 'removeSubmission'; id: string }
@@ -597,6 +701,13 @@ export type Action =
   | { type: 'toggleFavorite'; id: string }
   | { type: 'assignCra'; center: string; cra: string; projectNo?: string }
   | { type: 'assignPm'; projectNo: string; pm: string }
+  /* ===== R32 研究中心注册表 ===== */
+  | { type: 'addCenter'; center: Center }
+  /** 改名时级联：同项目 SITE 目录（center 字段 + 名称「—中心」后缀）、文件 center、递交矩阵日期键 同步更新 */
+  | { type: 'updateCenter'; id: string; patch: Partial<Omit<Center, 'id'>> }
+  | { type: 'removeCenter'; id: string }
+  /* ===== R35 跨标签页同步：另一标签页写入 clinx-data-v2 后本标签页水合最新业务数据（保留会话态） ===== */
+  | { type: 'hydrate'; data: PersistedData }
   | { type: 'addAccount'; account: Account }
   | { type: 'updateAccount'; id: string; patch: Partial<Omit<Account, 'id'>> }
   | { type: 'setAccountStatus'; id: string; status: Account['status'] }
@@ -654,6 +765,8 @@ function reducer(state: State, action: Action): State {
       return { ...state, role: action.role }
     case 'setActiveProject':
       return { ...state, activeProject: action.project }
+    case 'setNamingTemplate':
+      return { ...state, namingTemplate: action.template.trim() || DEFAULT_NAMING_TEMPLATE }
     case 'addFiles':
       return { ...state, files: [...state.files, ...action.files] }
     case 'renameFile':
@@ -686,6 +799,31 @@ function reducer(state: State, action: Action): State {
       })
       return { ...state, files, catalogs }
     }
+    case 'archiveRouted': {
+      /* 智能归档：分区/文档类型文件夹随 newFolders 创建，entries 逐文件指定目标（子文件各自路由，不跟随父文件夹） */
+      const byId = new Map(action.entries.map((e) => [e.id, e]))
+      const files = [...state.files, ...action.newFolders].map((f) => {
+        const e = byId.get(f.id)
+        return e ? { ...f, status: 'archived' as const, folderId: e.folderId, parentId: e.parentId, reason: undefined } : f
+      })
+      /* 同步更新目标目录的大小与更新日期（分区/文档类型文件夹为 folder 不计入大小） */
+      const catIds = new Set(action.entries.map((e) => e.folderId))
+      const catalogs = state.catalogs.map((c) => {
+        if (!catIds.has(c.id)) return c
+        const inside = files.filter((f) => f.folderId === c.id && f.status === 'archived' && f.kind !== 'folder')
+        return { ...c, size: sumSizes(inside), updateDate: todayStr() }
+      })
+      return { ...state, files, catalogs }
+    }
+    case 'addArchiveRoute':
+      return { ...state, archiveRoutes: [...state.archiveRoutes, action.route] }
+    case 'updateArchiveRoute':
+      return {
+        ...state,
+        archiveRoutes: state.archiveRoutes.map((r) => (r.id === action.id ? { ...r, ...action.patch } : r)),
+      }
+    case 'removeArchiveRoute':
+      return { ...state, archiveRoutes: state.archiveRoutes.filter((r) => r.id !== action.id) }
     case 'rejectFile':
       return {
         ...state,
@@ -717,15 +855,43 @@ function reducer(state: State, action: Action): State {
       }
     case 'addCatalogs':
       return { ...state, catalogs: [...state.catalogs, ...action.catalogs] }
+    case 'renameCatalog':
+      return {
+        ...state,
+        catalogs: state.catalogs.map((c) => (c.id === action.id ? { ...c, name: action.name } : c)),
+      }
     case 'addSubmissions':
       return { ...state, submissions: [...state.submissions, ...action.submissions] }
-    case 'publishSubmission':
+    case 'publishSubmission': {
+      const target = state.submissions.find((s) => s.id === action.id)
+      /* R29 数据流修复：发布动作同步生成递交概况矩阵行（原实现只翻 published 标志，矩阵永远空白）。
+         矩阵行 id 与递交 id 一致，删除/派生补全均以 id 对齐 */
+      const hasRow =
+        !target || state.submissionSchedule.some((r) => r.id === target.id || r.topic === target.topic)
       return {
         ...state,
         submissions: state.submissions.map((s) => (s.id === action.id ? { ...s, published: true } : s)),
+        submissionSchedule: hasRow
+          ? state.submissionSchedule
+          : [
+              ...state.submissionSchedule,
+              {
+                id: target.id,
+                topic: target.topic,
+                publishDate: todayStr(),
+                deadline: target.deadline ?? '',
+                dates: {},
+              },
+            ],
       }
+    }
     case 'removeSubmission':
-      return { ...state, submissions: state.submissions.filter((s) => s.id !== action.id) }
+      /* R29：删除递交时同步移除概况矩阵行（行 id = 递交 id） */
+      return {
+        ...state,
+        submissions: state.submissions.filter((s) => s.id !== action.id),
+        submissionSchedule: state.submissionSchedule.filter((r) => r.id !== action.id),
+      }
     case 'saveSubmissionDates':
       return {
         ...state,
@@ -750,6 +916,76 @@ function reducer(state: State, action: Action): State {
       }
     case 'assignPm':
       return { ...state, pmMap: { ...state.pmMap, [action.projectNo]: action.pm } }
+    /* ===== R32 研究中心注册表 ===== */
+    case 'addCenter':
+      return { ...state, centers: [...state.centers, action.center] }
+    case 'updateCenter': {
+      const prev = state.centers.find((c) => c.id === action.id)
+      if (!prev) return state
+      const centers = state.centers.map((c) => (c.id === action.id ? { ...c, ...action.patch } : c))
+      const nextName = (action.patch.name ?? prev.name).trim()
+      /* 仅改名触发级联；项目编号在 UI 层对已建目录中心禁用，这里不级联编号 */
+      if (!nextName || nextName === prev.name) return { ...state, centers }
+      const matchProj = (p: string) => projPrefixMatch(p, prev.projectNo)
+      /* SITE 目录：center 字段 + 目录名后缀同步——兼容「 —中心名」（R32 前旧目录）与「-TMF-中心名」（R34 图纸命名）两种后缀 */
+      const catalogs = state.catalogs.map((c) => {
+        if (!(c.kind === 'site' && c.center === prev.name && matchProj(c.projectNo))) return c
+        let name = c.name
+        if (name.endsWith(`—${prev.name}`)) {
+          name = `${name.slice(0, name.length - prev.name.length - 1)}—${nextName}`
+        } else if (name.endsWith(`-TMF-${prev.name}`)) {
+          name = `${name.slice(0, name.length - prev.name.length)}${nextName}`
+        }
+        return { ...c, center: nextName, name }
+      })
+      /* 在途/已归档文件的 center 字段同步（保持统计与归档口径一致） */
+      const files = state.files.map((f) =>
+        f.center === prev.name && matchProj(f.projectNo) ? { ...f, center: nextName } : f,
+      )
+      /* 递交概况矩阵 dates 以中心名为键：改名平移键（矩阵列按注册表名称渲染，键不同步则日期丢失） */
+      const submissionSchedule = state.submissionSchedule.map((r) => {
+        if (!(prev.name in r.dates)) return r
+        const dates = { ...r.dates }
+        dates[nextName] = dates[prev.name]
+        delete dates[prev.name]
+        return { ...r, dates }
+      })
+      return { ...state, centers, catalogs, files, submissionSchedule }
+    }
+    case 'removeCenter':
+      /* 仅移除注册表配置；已建 SITE 目录与其中的文件保留（UI 层删除已建目录中心前有确认提示） */
+      return { ...state, centers: state.centers.filter((c) => c.id !== action.id) }
+    /* ===== R35 跨标签页水合：另一标签页（如 PM 端）发布递交/改动数据后，本标签页实时同步 ===== */
+    case 'hydrate': {
+      const d = action.data
+      /* 已发布但矩阵缺行的递交派生补行（与 initialState 同一迁移规则，幂等） */
+      const derived = d.submissions
+        .filter((s) => s.published && !d.submissionSchedule.some((r) => r.id === s.id || r.topic === s.topic))
+        .map((s) => ({
+          id: s.id,
+          topic: s.topic,
+          publishDate: s.uploadDate,
+          deadline: s.deadline ?? '',
+          dates: {} as Record<string, string>,
+        }))
+      return {
+        ...state,
+        files: d.files,
+        catalogs: d.catalogs,
+        submissions: d.submissions,
+        submissionSchedule: [...d.submissionSchedule, ...derived],
+        archiveRoutes: d.archiveRoutes ?? state.archiveRoutes,
+        namingTemplate: d.namingTemplate ?? state.namingTemplate,
+        favorites: d.favorites ?? state.favorites,
+        craMap: d.craMap ?? state.craMap,
+        centers: d.centers ?? state.centers,
+        pmMap: d.pmMap ?? state.pmMap,
+        accounts: d.accounts ?? state.accounts,
+        accountDeleted: d.accountDeleted ?? state.accountDeleted,
+        customers: d.customers ?? state.customers,
+        loginLogs: d.loginLogs ?? state.loginLogs,
+      }
+    }
     /* ===== 后台管理：账户配置 ===== */
     case 'addAccount':
       return { ...state, accounts: [...state.accounts, action.account] }
@@ -789,6 +1025,8 @@ const StoreContext = createContext<{ state: State; dispatch: Dispatch<Action> } 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState)
   const value = useMemo(() => ({ state, dispatch }), [state])
+  /* R35：最近一次写入/水合的序列化内容——写入守卫与 storage 监听防回环共用 */
+  const lastSerialized = useRef('')
 
   /* 登录态持久化到 sessionStorage：刷新不掉线，关标签页失效 */
   useEffect(() => {
@@ -800,10 +1038,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [state.authed, state.role])
 
-  /* 业务数据持久化到 localStorage：刷新/重开浏览器不丢失 */
+  /* 业务数据持久化到 localStorage：刷新/重开浏览器不丢失；
+     R35 守卫：与最近一次写入/水合内容一致时跳过，配合下方 storage 监听杜绝跨标签页回环写 */
   useEffect(() => {
-    writeData(state)
-  }, [state.files, state.catalogs, state.submissions, state.submissionSchedule, state.favorites, state.craMap, state.pmMap, state.accounts, state.accountDeleted, state.customers, state.loginLogs])
+    try {
+      const raw = serializeData(state)
+      if (raw === lastSerialized.current) return
+      lastSerialized.current = raw
+      localStorage.setItem(DATA_KEY, raw)
+    } catch {
+      /* 存储满或不可用时静默失败，不影响内存态 */
+    }
+  }, [state.files, state.catalogs, state.submissions, state.submissionSchedule, state.archiveRoutes, state.namingTemplate, state.favorites, state.craMap, state.centers, state.pmMap, state.accounts, state.accountDeleted, state.customers, state.loginLogs])
+
+  /* R35 跨标签页同步：其他标签页写入 clinx-data-v2 时本标签页即时水合最新业务数据
+     （保留本会话的登录态/角色/项目筛选；storage 事件只在本标签页之外触发，不会自环） */
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== DATA_KEY || !e.newValue) return
+      if (e.newValue === lastSerialized.current) return
+      lastSerialized.current = e.newValue
+      const data = readData()
+      if (data) dispatch({ type: 'hydrate', data })
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

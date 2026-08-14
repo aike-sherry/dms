@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { PanelLeft, BookOpen, Settings, FlaskConical, ChevronDown, LogOut, RotateCcw, Palette, Check } from 'lucide-react'
+import { BookOpen, Settings, FlaskConical, ChevronDown, LogOut, RotateCcw, Palette, Check } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,6 +14,7 @@ import { projectOptions } from '@/data/mock'
 import { useStore, PM_USER, EX_USER, ADMIN_USER } from '@/store'
 import { useThemeBg, BG_PRESETS, NAV_PRESETS, DEFAULT_BG, DEFAULT_NAV_BG, navBaseColor } from '@/lib/theme'
 import { cn } from '@/lib/utils'
+import logoImg from '@/assets/clini-x-trials-logo.png'
 
 function Clock() {
   const [now, setNow] = useState(() => new Date())
@@ -254,15 +255,17 @@ function SettingsMenu() {
   )
 }
 
-export default function Header({ title }: { title: string }) {
+export default function Header() {
   const { state, dispatch } = useStore()
   const headerOptions = [{ label: '全部项目', value: '全部' }, ...projectOptions]
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-5">
+    /* 顶栏通栏：底边分隔线横贯全宽（border-b + shadow-sm + z-10 强化分界，与下方导航/内容严格分隔）；
+       左侧只保留 LOGO + 系统名称，页标题由 Layout 内容区顶部渲染 */
+    <header className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-5 shadow-sm">
       <div className="flex items-center gap-3">
-        <PanelLeft className="h-[18px] w-[18px] cursor-pointer text-gray-500 transition-colors hover:text-teal-500" />
-        <h1 className="text-[15px] font-medium text-gray-700">{title}</h1>
+        <img src={logoImg} alt="CLINI X TRIALS" className="h-6 w-auto" />
+        <span className="text-[15px] font-semibold tracking-wide text-gray-800">研究文件管理系统</span>
       </div>
 
       <div className="flex items-center gap-5">

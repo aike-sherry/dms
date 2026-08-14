@@ -1,26 +1,50 @@
-import { useState } from 'react'
-import { Check, Download, FolderOpen, SquarePen, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Download, FolderOpen, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { PageCard, DataTable, Th, Td, NameTd, Tr, FileTypeIcon, TealLink } from '@/components/common'
+import { PageCard, DataTable, Th, Td, NameTd, NameTh, Tr, FileTypeIcon, TealLink } from '@/components/common'
 import { OverviewTable } from '@/pages/Submission'
-import { submissionFolderFiles, submissionHospitals } from '@/data/mock'
-import { EXECUTOR_CENTER, useStore, type Submission } from '@/store'
+import { submissionFolderFiles } from '@/data/mock'
+import { EXECUTOR_CENTER, EX_USER, useStore, type Center, type Submission } from '@/store'
 
-/** 执行人员所属中心对应的医院列名（如 上海瑞金医院 → 瑞金医院） */
-const myHospital = submissionHospitals.find((h) => EXECUTOR_CENTER.includes(h))
-
-/* 执行人员 SUBMISSION：递交文件只读（仅下载）；递交概况中本中心的递交日期可录入更新 */
+/* 执行人员 SUBMISSION（R35 重写数据链路）：
+   - 可见范围 = 本人负责的中心所涉项目（分配来源 = 首页「研究中心管理」注册表 cra 字段；兼容账号中心名旧匹配）；
+     递交文件列表与递交概况矩阵行均按此过滤，PM 发布后经跨标签页同步即时可见
+   - 递交概况矩阵：本人负责的中心列「待递交」单元格可点击弹出日历录入递交日期，选定即保存；
+     其他中心列只读；PM 端矩阵同步只读显示 */
 export default function ExSubmission() {
   const { state, dispatch } = useStore()
-  /* 递交文件列表带项目编号维度：静默跟随全局项目筛选（递交概况矩阵无项目维度，不过滤） */
+  /* 本人负责的中心：注册表 cra=当前执行人员姓名 ∪ 账号中心名旧匹配（互相包含兜底），按中心名去重 */
+  const myCenters = useMemo(() => {
+    const map = new Map<string, Center>()
+    for (const c of state.centers) {
+      if (c.cra === EX_USER.name || EXECUTOR_CENTER.includes(c.name) || c.name.includes(EXECUTOR_CENTER)) {
+        if (!map.has(c.name)) map.set(c.name, c)
+      }
+    }
+    return [...map.values()]
+  }, [state.centers])
+  const myHospitals = useMemo(() => myCenters.map((c) => c.name), [myCenters])
+  /* 本人负责中心所涉项目（注册表项目编号） */
+  const myProjects = useMemo(() => [...new Set(myCenters.map((c) => c.projectNo))], [myCenters])
+  const projMatch = (a: string, b: string) => a === b || a.startsWith(b) || b.startsWith(a)
+  /* 递交文件列表：已发布 + 本人项目 + 静默跟随全局项目筛选 */
   const project = state.activeProject
   const published = state.submissions.filter(
-    (s) => s.published && (project === '全部' || s.projectNo.startsWith(project)),
+    (s) =>
+      s.published &&
+      myProjects.some((p) => projMatch(s.projectNo, p)) &&
+      (project === '全部' || s.projectNo.startsWith(project)),
   )
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState<Record<string, string>>({})
+  /* 递交概况矩阵行：按本人项目过滤（行 id = 递交 id，联查递交的项目编号；查不到的行保留防误隐藏） */
+  const myRows = useMemo(() => {
+    const projOf = new Map(state.submissions.map((s) => [s.id, s.projectNo]))
+    return state.submissionSchedule.filter((r) => {
+      const p = projOf.get(r.id)
+      return !p || myProjects.some((mp) => projMatch(p, mp))
+    })
+  }, [state.submissionSchedule, state.submissions, myProjects])
   const [folderView, setFolderView] = useState<Submission | null>(null)
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [folderSel, setFolderSel] = useState<Set<string>>(new Set())
@@ -30,6 +54,13 @@ export default function ExSubmission() {
     if (checked) next.add(key)
     else next.delete(key)
     return next
+  }
+
+  /* R35：单元格选定日期即保存（单格更新），PM 端矩阵同步只读显示 */
+  const saveCell = (rowId: string, hospital: string, date: string) => {
+    dispatch({ type: 'saveSubmissionDates', updates: [{ rowId, hospital, date }] })
+    const topic = state.submissionSchedule.find((r) => r.id === rowId)?.topic ?? ''
+    toast.success('递交日期已更新', { description: `${hospital} · ${topic}：${date}` })
   }
 
   const downloadFiles = (files: { name?: string; fileName?: string }[]) => {
@@ -44,70 +75,17 @@ export default function ExSubmission() {
     })
   }
 
-  const startEdit = () => {
-    const init: Record<string, string> = {}
-    if (myHospital) {
-      for (const r of state.submissionSchedule) init[`${r.id}|${myHospital}`] = r.dates[myHospital] ?? ''
-    }
-    setDraft(init)
-    setEditing(true)
-  }
-
-  const save = () => {
-    if (!myHospital) return
-    const empty = Object.values(draft).filter((d) => !d).length
-    dispatch({
-      type: 'saveSubmissionDates',
-      updates: Object.entries(draft).map(([key, date]) => {
-        const [rowId, hospital] = key.split('|')
-        return { rowId, hospital, date }
-      }),
-    })
-    setEditing(false)
-    toast.success('递交日期已更新', {
-      description: empty > 0 ? `已保存，仍有 ${empty} 项待录入` : `${myHospital}全部递交主题日期已录入`,
-    })
-  }
-
-  const cancel = () => {
-    setEditing(false)
-    setDraft({})
-  }
-
   return (
     <div className="space-y-5">
-      <PageCard
-        title="递交概况"
-        extra={
-          editing ? (
-            <div className="flex items-center gap-2">
-              <Button size="sm" className="h-8 gap-1 bg-teal-500 text-xs hover:bg-teal-600" onClick={save}>
-                <Check className="h-3.5 w-3.5" /> 保存
-              </Button>
-              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={cancel}>
-                取消
-              </Button>
-            </div>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1 border-teal-200 text-xs text-teal-600 hover:bg-teal-50 hover:text-teal-700"
-              onClick={startEdit}
-            >
-              <SquarePen className="h-3.5 w-3.5" /> 更新
-            </Button>
-          )
-        }
-      >
-        <OverviewTable
-          editHospital={editing ? myHospital : undefined}
-          draft={draft}
-          onDateChange={(rowId, hospital, date) => setDraft((d) => ({ ...d, [`${rowId}|${hospital}`]: date }))}
-        />
-        {editing && (
+      <PageCard title="递交概况">
+        <OverviewTable rows={myRows} editableHospitals={myHospitals} onSaveDate={saveCell} />
+        {myHospitals.length > 0 ? (
           <p className="mt-3 text-xs text-gray-400">
-            仅可录入本中心（{myHospital}）的递交日期，其他中心日期由对应执行人员维护。
+            仅本人负责的中心（{myHospitals.join('、')}）可点击「待递交」单元格录入递交日期，选定即保存；其他中心只读。
+          </p>
+        ) : (
+          <p className="mt-3 text-xs text-gray-400">
+            注册表中暂无本人负责的中心（{EXECUTOR_CENTER}），暂无可录入列；请联系 PM 在首页「研究中心管理」中配置。
           </p>
         )}
       </PageCard>
@@ -155,12 +133,12 @@ export default function ExSubmission() {
                   onChange={(e) => setSel(e.target.checked ? new Set(published.map((s) => s.id)) : new Set())}
                 />
               </Th>
-              <Th sortable={false}>递交主题</Th>
-              <Th>文件</Th>
-              <Th>项目编号</Th>
-              <Th>上传日期</Th>
-              <Th>文件大小</Th>
-              <Th sortable={false}>操作</Th>
+              <Th sortable={false} className="w-52">递交主题</Th>
+              <NameTh className="w-[22%]">文件</NameTh>
+              <Th className="w-36">项目编号</Th>
+              <Th className="w-36">上传日期</Th>
+              <Th className="w-28">文件大小</Th>
+              <Th sortable={false} className="w-24">操作</Th>
             </tr>
           </thead>
           <tbody>
@@ -187,7 +165,7 @@ export default function ExSubmission() {
                           setFolderSel(new Set())
                         }}
                         title="点击打开文件夹"
-                        className="text-left text-gray-700 underline decoration-teal-300 decoration-dotted underline-offset-4 transition-colors hover:text-teal-600"
+                        className="text-gray-700 underline decoration-teal-300 decoration-dotted underline-offset-4 transition-colors hover:text-teal-600"
                       >
                         {s.fileName}
                       </button>
@@ -207,7 +185,9 @@ export default function ExSubmission() {
             {published.length === 0 && (
               <tr>
                 <td colSpan={7} className="py-12 text-center text-sm text-gray-400">
-                  暂无已发布的递交文件
+                  {myCenters.length === 0
+                    ? '注册表中暂无本人负责的中心，递交文件按分配项目过滤后为空'
+                    : '暂无已发布的递交文件'}
                 </td>
               </tr>
             )}
@@ -248,9 +228,9 @@ export default function ExSubmission() {
                         }
                       />
                     </Th>
-                    <Th sortable={false}>文件名称</Th>
-                    <Th sortable={false}>文件大小</Th>
-                    <Th sortable={false}>操作</Th>
+                    <NameTh>文件名称</NameTh>
+                    <Th sortable={false} className="w-28">文件大小</Th>
+                    <Th sortable={false} className="w-20">操作</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -266,9 +246,9 @@ export default function ExSubmission() {
                         />
                       </Td>
                       <NameTd>
-                        <span className="flex items-center gap-2.5">
+                        <span className="flex min-w-0 items-center gap-2.5">
                           <FileTypeIcon kind={f.kind} />
-                          <span className="text-gray-700">{f.name}</span>
+                          <span className="truncate text-gray-700">{f.name}</span>
                         </span>
                       </NameTd>
                       <Td>{f.size}</Td>

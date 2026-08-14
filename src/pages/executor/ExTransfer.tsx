@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
-import { Plus, Trash2, Upload, RotateCcw, CircleX, FileX2, ArrowLeft, Pencil } from 'lucide-react'
+import { Plus, Trash2, Upload, RotateCcw, CircleX, FileX2, ArrowLeft, Pencil, FolderCog } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { PageCard, DataTable, Th, Td, NameTd, Tr, FileTypeIcon, TealLink, FavButton } from '@/components/common'
+import { PageCard, DataTable, Th, Td, NameTd, NameTh, Tr, FileTypeIcon, TealLink, FavButton, ToolbarSelect } from '@/components/common'
+import { VersionHist } from '@/components/VersionHist'
 import UploadDialog from '@/components/UploadDialog'
 import SmartProcessDialog, { type SmartMode } from '@/components/SmartProcessDialog'
-import { useStore, statsByCenter, nextId, todayStr, craOfCenter, EXECUTOR_NAME, EXECUTOR_CENTER, PM_USER, type TmfFile } from '@/store'
+import { useStore, statsByCenter, nextId, todayStr, craNameOf, EXECUTOR_NAME, EXECUTOR_CENTER, PM_USER, type TmfFile } from '@/store'
 
 /* 执行人员 Transfer：上传 → 提交 → PM 审核；驳回可查看原因并重新上传 */
 export default function ExTransfer() {
@@ -20,12 +21,29 @@ export default function ExTransfer() {
   /* 删除模式：勾选要删除的行，可取消 */
   const [deleteMode, setDeleteMode] = useState(false)
   const [deleteSel, setDeleteSel] = useState<Set<string>>(new Set())
+  /* 新建文件夹弹窗：名称 + 所属项目编号（默认全局筛选值，'全部' 时取第一个项目） */
+  const [newFolderOpen, setNewFolderOpen] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [newFolderProject, setNewFolderProject] = useState('')
+  /* 文件夹项目编号更换 */
+  const [projPicker, setProjPicker] = useState<TmfFile | null>(null)
+  const [projDraft, setProjDraft] = useState('')
+  /* 钻取视图内上传：项目编号锁定继承文件夹所属项目 */
+  const [folderUploadOpen, setFolderUploadOpen] = useState(false)
 
   // 执行端只看自己的文件
   const myFiles = useMemo(() => state.files.filter((f) => f.uploader === EXECUTOR_NAME), [state.files])
   // 全局项目筛选：无本页下拉，静默跟随顶部 Header（'全部' 不过滤）
   const project = state.activeProject
   const matchProject = (projectNo: string) => project === '全部' || projectNo.startsWith(project)
+  /* 项目编号选项：动态取自 STUDY TMF 目录 */
+  const projectChoices = useMemo(
+    () => [...new Set(state.catalogs.filter((c) => c.kind === 'study').map((c) => c.projectNo))],
+    [state.catalogs],
+  )
+  /* 新建文件夹默认项目编号：全局筛选为具体项目时跟随筛选（前缀匹配），'全部' 时取第一个项目 */
+  const defaultNewFolderProject = () =>
+    (project !== '全部' ? projectChoices.find((p) => p.startsWith(project)) : undefined) ?? projectChoices[0] ?? ''
   // 上传列表：待提交 / 审核中 / 已驳回（归档后消失）；文件夹子文件不重复出现在顶层；随全局项目筛选
   const listFiles = useMemo(
     () => myFiles.filter((f) => f.status !== 'archived' && !f.parentId && matchProject(f.projectNo)),
@@ -48,12 +66,22 @@ export default function ExTransfer() {
     toast.success('已重新上传，请再次提交审核')
   }
 
-  const addRow = () => {
+  /* 新建文件夹：弹窗内输入名称并选择所属项目编号（默认全局筛选值） */
+  const openNewFolder = () => {
+    setNewFolderName('新建文件夹')
+    setNewFolderProject(defaultNewFolderProject())
+    setNewFolderOpen(true)
+  }
+  const confirmNewFolder = () => {
+    if (!newFolderProject) {
+      toast.warning('请选择所属项目编号', { description: '文件夹归档时按项目编号进入对应 STUDY TMF' })
+      return
+    }
     const file: TmfFile = {
       id: nextId('f'),
-      name: '新建文件夹',
+      name: newFolderName.trim() || '新建文件夹',
       kind: 'folder',
-      projectNo: 'ON101CL103',
+      projectNo: newFolderProject,
       center: EXECUTOR_CENTER,
       uploader: EXECUTOR_NAME,
       uploadDate: todayStr(),
@@ -61,9 +89,22 @@ export default function ExTransfer() {
       status: 'uploaded',
     }
     dispatch({ type: 'addFiles', files: [file] })
-    /* 新建后立即进入命名状态 */
-    setRenamingId(file.id)
-    setRenameText(file.name)
+    toast.success(`已创建文件夹「${file.name}」`, { description: `项目编号：${file.projectNo}，可打开后在内上传文件` })
+    setNewFolderOpen(false)
+  }
+
+  /* 文件夹更换项目编号（级联子文件） */
+  const openProjPicker = (f: TmfFile) => {
+    setProjPicker(f)
+    setProjDraft(f.projectNo)
+  }
+  const confirmProjChange = () => {
+    if (!projPicker || !projDraft) return
+    dispatch({ type: 'setFileProject', id: projPicker.id, projectNo: projDraft })
+    toast.success('项目编号已更新', {
+      description: `文件夹「${projPicker.name}」及子文件的编号已更新为 ${projDraft}，归档时将进入该项目 STUDY TMF`,
+    })
+    setProjPicker(null)
   }
 
   const commitRename = () => {
@@ -126,23 +167,31 @@ export default function ExTransfer() {
             </tr>
           </thead>
           <tbody>
-            {stats.map((r) => (
+            {stats.map((r) => {
+              /* R32：CRA 列改读研究中心注册表；未配置显示 — */
+              const cra = craNameOf(state.centers, r.center)
+              return (
               <Tr key={r.center}>
                 <Td>{r.center}</Td>
                 <Td>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-50 text-[11px] font-medium text-teal-600">
-                      {craOfCenter(state.craMap, r.center).slice(0, 1)}
+                  {cra ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-50 text-[11px] font-medium text-teal-600">
+                        {cra.slice(0, 1)}
+                      </span>
+                      {cra}
                     </span>
-                    {craOfCenter(state.craMap, r.center)}
-                  </span>
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
                 </Td>
                 <Td>{r.uploaded}</Td>
                 <Td>{r.pending}</Td>
                 <Td>{r.rejected}</Td>
                 <Td>{r.archived}</Td>
               </Tr>
-            ))}
+              )
+            })}
             {stats.length === 0 && (
               <tr>
                 <td colSpan={6} className="py-10 text-center text-sm text-gray-400">
@@ -194,12 +243,17 @@ export default function ExTransfer() {
               </Button>
             </div>
           ) : folderView ? (
-            <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={enterDelete}>
-              <Trash2 className="h-3.5 w-3.5" /> 删除
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={enterDelete}>
+                <Trash2 className="h-3.5 w-3.5" /> 删除
+              </Button>
+              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={() => setFolderUploadOpen(true)}>
+                <Upload className="h-3.5 w-3.5" /> 上传
+              </Button>
+            </div>
           ) : (
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={addRow}>
+              <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={openNewFolder}>
                 <Plus className="h-3.5 w-3.5" /> 新建
               </Button>
               <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={enterDelete}>
@@ -215,13 +269,13 @@ export default function ExTransfer() {
         <DataTable>
           <thead>
             <tr>
-              {deleteMode && <Th sortable={false}>选择</Th>}
-              <Th sortable={false}>文件名称</Th>
-              <Th>上传日期</Th>
-              <Th>文件大小</Th>
-              <Th>项目编号</Th>
-              <Th sortable={false}>智能处理</Th>
-              <Th sortable={false}>状态</Th>
+              {deleteMode && <Th sortable={false} className="w-12">选择</Th>}
+              <NameTh className="w-[26%]">文件名称</NameTh>
+              <Th className="w-36">上传日期</Th>
+              <Th className="w-28">文件大小</Th>
+              <Th className="w-40">项目编号</Th>
+              <Th sortable={false} className="w-52">智能处理</Th>
+              <Th sortable={false} className="w-28">状态</Th>
             </tr>
           </thead>
           <tbody>
@@ -248,7 +302,7 @@ export default function ExTransfer() {
                         if (e.key === 'Enter') commitRename()
                         if (e.key === 'Escape') setRenamingId(null)
                       }}
-                      className="w-48 rounded-md border border-teal-300 px-2 py-1 text-sm text-gray-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                      className="w-48 rounded-md border border-teal-300 px-2 py-1 text-center text-sm text-gray-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                     />
                   ) : (
                     <span className="flex items-center gap-2.5">
@@ -262,8 +316,9 @@ export default function ExTransfer() {
                           {f.name}
                         </button>
                       ) : (
-                        <span className="text-gray-700">{f.name}</span>
+                        <span className="truncate text-gray-700">{f.name}</span>
                       )}
+                      <VersionHist file={f} />
                       {f.kind === 'folder' && (
                         <button
                           type="button"
@@ -283,9 +338,22 @@ export default function ExTransfer() {
                 <Td>{f.uploadDate}</Td>
                 <Td>{f.size}</Td>
                 <Td>
-                  <span className="inline-flex rounded-md bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700 ring-1 ring-teal-100">
-                    {f.projectNo}
-                  </span>
+                  {f.kind === 'folder' ? (
+                    /* 文件夹编号徽标可点击更换（子文件级联更新） */
+                    <button
+                      type="button"
+                      title="点击更换项目编号"
+                      onClick={() => openProjPicker(f)}
+                      className="inline-flex items-center gap-1 rounded-md bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700 ring-1 ring-teal-100 transition-colors hover:bg-teal-100"
+                    >
+                      {f.projectNo}
+                      <FolderCog className="h-3 w-3 text-teal-400" />
+                    </button>
+                  ) : (
+                    <span className="inline-flex rounded-md bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700 ring-1 ring-teal-100">
+                      {f.projectNo}
+                    </span>
+                  )}
                 </Td>
                 <Td>
                   {f.kind === 'folder' ? (
@@ -328,7 +396,7 @@ export default function ExTransfer() {
             {(folderView ? folderChildren : listFiles).length === 0 && (
               <tr>
                 <td colSpan={deleteMode ? 7 : 6} className="py-12 text-center text-sm text-gray-400">
-                  {folderView ? '文件夹内暂无文件' : '暂无文件，点击右上角"上传"添加文件'}
+                  {folderView ? '文件夹内暂无文件，点击右上角"上传"添加文件' : '暂无文件，点击右上角"上传"添加文件'}
                 </td>
               </tr>
             )}
@@ -336,8 +404,96 @@ export default function ExTransfer() {
         </DataTable>
       </PageCard>
 
-      <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />
+      <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} withNamingConfirm />
+      {/* 钻取视图内上传：项目编号锁定继承文件夹所属项目，文件挂为该文件夹子级 */}
+      <UploadDialog
+        open={folderUploadOpen && !!folderView}
+        onOpenChange={setFolderUploadOpen}
+        withNamingConfirm
+        lockProjectNo={folderView?.projectNo}
+        fixedParentId={folderView?.id}
+      />
       <SmartProcessDialog target={smart} onClose={() => setSmart(null)} />
+
+      {/* 新建文件夹弹窗：名称 + 所属项目编号（默认全局筛选值，'全部' 时取第一个项目） */}
+      <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[15px]">
+              <Plus className="h-4 w-4 text-teal-600" /> 新建文件夹
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs text-gray-400">文件夹名称</label>
+              <input
+                autoFocus
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && confirmNewFolder()}
+                placeholder="新建文件夹"
+                className="w-full rounded-md border border-gray-200 px-2.5 py-1.5 text-sm text-gray-700 outline-none hover:border-teal-400 focus:border-teal-500"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-gray-400">所属项目编号（归档目标 STUDY TMF）</label>
+              <ToolbarSelect
+                value={newFolderProject}
+                onChange={setNewFolderProject}
+                options={projectChoices.map((p) => ({ label: p, value: p }))}
+                className="w-full [&>select]:w-full"
+              />
+              <p className="text-xs text-gray-400">创建后可点击列表中的编号徽标随时更换，子文件编号同步更新</p>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" size="sm" onClick={() => setNewFolderOpen(false)}>
+                取消
+              </Button>
+              <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={confirmNewFolder}>
+                创建
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 文件夹项目编号更换弹窗 */}
+      <Dialog open={!!projPicker} onOpenChange={(o) => !o && setProjPicker(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[15px]">
+              <FolderCog className="h-4 w-4 text-teal-600" /> 更换项目编号
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2.5 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+              {projPicker && <FileTypeIcon kind={projPicker.kind} />}
+              <div className="min-w-0">
+                <p className="truncate text-sm text-gray-700">{projPicker?.name}</p>
+                <p className="text-xs text-gray-400">当前编号：{projPicker?.projectNo}</p>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-gray-400">归属项目编号（归档目标 STUDY TMF）</label>
+              <ToolbarSelect
+                value={projDraft}
+                onChange={setProjDraft}
+                options={projectChoices.map((p) => ({ label: p, value: p }))}
+                className="w-full [&>select]:w-full"
+              />
+              <p className="text-xs text-gray-400">更换后文件夹内子文件的编号将同步更新</p>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" size="sm" onClick={() => setProjPicker(null)}>
+                取消
+              </Button>
+              <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={confirmProjChange}>
+                确认更换
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 驳回原因弹窗 */}
       <Dialog open={!!rejectView} onOpenChange={(o) => !o && setRejectView(null)}>

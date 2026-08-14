@@ -18,7 +18,7 @@ import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ModalHeader } from '@/components/CatalogDialog'
-import { PageCard, DataTable, Th, Td, Tr, SearchInput, ToolbarSelect, FileTypeIcon } from '@/components/common'
+import { PageCard, DataTable, Th, Td, Tr, SearchInput, ToolbarSelect, FileTypeIcon, NameTh } from '@/components/common'
 import { useStore, nextId, todayStr, type Account, type FileStatus, type Role } from '@/store'
 import { cn } from '@/lib/utils'
 
@@ -419,15 +419,15 @@ export default function AdminAccounts() {
       <DataTable>
         <thead>
           <tr>
-            <Th sortable={false}>登录账号</Th>
-            <Th sortable={false}>姓名</Th>
-            <Th sortable={false}>角色</Th>
-            <Th sortable={false}>申办方</Th>
+            <Th sortable={false} className="w-32">登录账号</Th>
+            <Th sortable={false} className="w-24">姓名</Th>
+            <Th sortable={false} className="w-20">角色</Th>
+            <Th sortable={false} className="w-28">申办方</Th>
             <Th sortable={false}>邮箱</Th>
-            <Th sortable={false}>联系方式</Th>
-            <Th sortable={false}>创建日期</Th>
-            <Th sortable={false}>账号状态</Th>
-            <Th sortable={false}>操作</Th>
+            <Th sortable={false} className="w-32">联系方式</Th>
+            <Th sortable={false} className="w-32">创建日期</Th>
+            <Th sortable={false} className="w-24">账号状态</Th>
+            <Th sortable={false} className="w-48">操作</Th>
           </tr>
         </thead>
         <tbody>
@@ -606,8 +606,8 @@ export default function AdminAccounts() {
                   <thead>
                     <tr>
                       <Th sortable={false}>登录时间</Th>
-                      <Th sortable={false}>登录账号</Th>
-                      <Th sortable={false}>角色</Th>
+                      <Th sortable={false} className="w-40">登录账号</Th>
+                      <Th sortable={false} className="w-24">角色</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -642,18 +642,18 @@ export default function AdminAccounts() {
                 <DataTable>
                   <thead>
                     <tr>
-                      <Th sortable={false}>文件名称</Th>
-                      <Th sortable={false}>项目编号</Th>
-                      <Th sortable={false}>研究中心</Th>
-                      <Th sortable={false}>上传日期</Th>
-                      <Th sortable={false}>状态</Th>
+                      <NameTh>文件名称</NameTh>
+                      <Th sortable={false} className="w-36">项目编号</Th>
+                      <Th sortable={false} className="w-36">研究中心</Th>
+                      <Th sortable={false} className="w-32">上传日期</Th>
+                      <Th sortable={false} className="w-24">状态</Th>
                     </tr>
                   </thead>
                   <tbody>
                     {drillFiles.slice(0, 10).map((f) => (
                       <Tr key={f.id}>
-                        <Td className="text-left">
-                          <span className="inline-flex items-center gap-2 pl-4">
+                        <Td>
+                          <span className="inline-flex items-center gap-2">
                             <FileTypeIcon kind={f.kind} />
                             <span className="text-gray-700">{f.name}</span>
                           </span>
