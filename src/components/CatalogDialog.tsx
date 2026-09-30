@@ -162,11 +162,13 @@ export default function CatalogDialog({
       setSel(new Set())
       setMaximized(false)
       uploadGroupRef.current = null
-      /* R34 SITE 图纸模式初始化：项目默认=页面筛选值（须为注册表有中心的项目），否则空（未选项目提交时拦截） */
+      /* R34 SITE 图纸模式初始化：项目默认=页面筛选值（须为注册表有中心的项目），否则空（未选项目提交时拦截）；
+         R38：预填项目时同步自动铺出该中心行 */
       if (type === 'site') {
         const projs = [...new Set(state.centers.map((c) => c.projectNo))].sort()
-        setSiteProject(preset && projs.some((p) => projPrefixMatch(p, preset)) ? projs.find((p) => projPrefixMatch(p, preset))! : '')
-        setSiteRows([])
+        const initProj = preset && projs.some((p) => projPrefixMatch(p, preset)) ? projs.find((p) => projPrefixMatch(p, preset))! : ''
+        setSiteProject(initProj)
+        setSiteRows(autoSiteRows(initProj))
         setSiteFile(null)
         setSitePreviewOpen(false)
       }
@@ -285,10 +287,21 @@ export default function CatalogDialog({
   const setSiteRowName = (id: string, v: string) =>
     setSiteRows((prev) => prev.map((r) => (r.id === id ? { ...r, name: v, nameDirty: v.trim() !== '' } : r)))
   const removeSiteRow = (id: string) => setSiteRows((prev) => prev.filter((r) => r.id !== id))
-  /* 切换项目：中心行随项目重算（清空重选），避免跨项目中心串行 */
+  /* R38：把该项目注册表内的全部中心自动铺成行（TMF 名称按 `-TMF-` 规则生成，可编辑）；
+     已建目录中心一并铺出并保留「已建目录，将合并导入」徽标——用户看到现成清单而非空表 */
+  const autoSiteRows = (proj: string): SiteRow[] =>
+    proj
+      ? centersForProject(proj).map((o) => ({
+          id: nextId('cat-r'),
+          center: o.name,
+          name: `${proj}-TMF-${o.name}`,
+          nameDirty: false,
+        }))
+      : []
+  /* 切换项目：中心行随项目自动重铺（注册表中心全量成行），避免跨项目中心串行 */
   const changeSiteProject = (v: string) => {
     setSiteProject(v)
-    setSiteRows([])
+    setSiteRows(autoSiteRows(v))
   }
 
   /* 上传 Excel → 解析 → 更新对应行（预览打开时实时刷新）；SITE 图纸模式一份应用到全部行并自动展开预览 */
@@ -646,7 +659,9 @@ export default function CatalogDialog({
                       {siteRows.length === 0 && (
                         <tr>
                           <td colSpan={3} className="py-10 text-center text-sm text-gray-400">
-                            暂无研究中心行，点右上角「⊕ 研究中心（点击添加）」
+                            暂无研究中心行，点右上角「⊕ 研究中心（点击添加）」补行；
+                            <br />
+                            若该项目尚未配置研究中心，可先到首页「研究中心管理」新增
                           </td>
                         </tr>
                       )}
