@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { Plus, Download, ChevronRight, Upload, Pencil } from 'lucide-react'
+import { Plus, Download, ChevronRight, Upload, Pencil, Braces } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import {
   PageCard,
   DataTable,
@@ -16,11 +17,36 @@ import {
   StatusPill,
   TealLink,
   FavButton,
+  ModalHeader,
 } from '@/components/common'
 import CatalogDialog from '@/components/CatalogDialog'
 import TmfUploadDialog from '@/components/TmfUploadDialog'
+import { SkeletonText } from '@/pages/admin/AdminNaming'
+import { effectiveTemplateRef } from '@/lib/namingSkeleton'
 import { projectOptions } from '@/data/mock'
 import { useStore, craNameOf, type Catalog, type TmfFile } from '@/store'
+
+/* R39 文件夹行命名骨架徽标：本目录绑定=teal「骨架·xx」；上级继承=灰「继承·xx」（title 提示继承来源） */
+function FolderTemplateBadge({ folderId }: { folderId: string }) {
+  const { state } = useStore()
+  const eff = effectiveTemplateRef(state.files, folderId, state.namingTemplates)
+  if (!eff) return null
+  if (eff.inherited) {
+    return (
+      <span
+        title={`继承自：${eff.holder.name}`}
+        className="shrink-0 cursor-help rounded-full bg-gray-100 px-2 py-0.5 text-[11px] whitespace-nowrap text-gray-400 ring-1 ring-gray-200"
+      >
+        继承·{eff.template.name}
+      </span>
+    )
+  }
+  return (
+    <span className="shrink-0 rounded-full bg-teal-50 px-2 py-0.5 text-[11px] whitespace-nowrap text-teal-600 ring-1 ring-teal-100">
+      骨架·{eff.template.name}
+    </span>
+  )
+}
 
 export default function TmfPage({ type }: { type: 'study' | 'site' }) {
   const { state, dispatch } = useStore()
@@ -41,6 +67,28 @@ export default function TmfPage({ type }: { type: 'study' | 'site' }) {
   const currentFolder = folderStack[folderStack.length - 1] ?? null
   /* 钻取视图上传弹窗（任意层级可直接上传到当前层级，直接归档） */
   const [uploadOpen, setUploadOpen] = useState(false)
+  /* R39 文件夹绑定命名骨架：钻取表文件夹行「绑定骨架」弹窗；bindSel='' 表示不绑定 */
+  const [bindFolder, setBindFolder] = useState<TmfFile | null>(null)
+  const [bindSel, setBindSel] = useState('')
+  const openBind = (f: TmfFile) => {
+    setBindFolder(f)
+    setBindSel(f.namingTemplateId ?? '')
+  }
+  const saveBind = () => {
+    if (!bindFolder) return
+    const tpl = state.namingTemplates.find((t) => t.id === bindSel)
+    dispatch({ type: 'setFolderTemplate', id: bindFolder.id, templateId: tpl ? tpl.id : null })
+    toast.success(tpl ? `已绑定骨架「${tpl.name}」` : '已取消绑定', {
+      description: '仅对后续上传的文件生效，存量文件名不会改变',
+    })
+    setBindFolder(null)
+  }
+  const unbind = () => {
+    if (!bindFolder) return
+    dispatch({ type: 'setFolderTemplate', id: bindFolder.id, templateId: null })
+    toast.success('已解绑本目录骨架', { description: '后续上传将跟随上级目录的绑定（如有）；存量文件名不变' })
+    setBindFolder(null)
+  }
   /* R27 钻取列表文件夹行内重命名（含目录顶层文件夹行）：铅笔入口 → 行内输入框，回车/失焦保存、Esc 取消 */
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameText, setRenameText] = useState('')
@@ -516,6 +564,7 @@ export default function TmfPage({ type }: { type: 'study' | 'site' }) {
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                         )}
+                        {f.kind === 'folder' && <FolderTemplateBadge folderId={f.id} />}
                       </span>
                     )}
                   </NameTd>
@@ -524,7 +573,11 @@ export default function TmfPage({ type }: { type: 'study' | 'site' }) {
                   <Td>{f.uploadDate}</Td>
                   <Td>{f.size}</Td>
                   <Td>
-                    <TealLink onClick={() => toast.success('命名设置已打开')}>命名设置</TealLink>
+                    {f.kind === 'folder' ? (
+                      <TealLink onClick={() => openBind(f)}>绑定骨架</TealLink>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
                   </Td>
                 </Tr>
               ))}
@@ -539,6 +592,73 @@ export default function TmfPage({ type }: { type: 'study' | 'site' }) {
           </DataTable>
         </PageCard>
       )}
+
+      {/* R39 文件夹绑定命名骨架弹窗：启用中骨架下拉 + 当前有效骨架信息 + 解绑 */}
+      <Dialog open={!!bindFolder} onOpenChange={(o) => !o && setBindFolder(null)}>
+        <DialogContent showCloseButton={false} className="gap-0 overflow-hidden rounded-2xl border-0 p-0 sm:max-w-lg">
+          <DialogTitle className="sr-only">绑定命名骨架</DialogTitle>
+          <ModalHeader
+            title={bindFolder ? `绑定命名骨架 · ${bindFolder.name}` : '绑定命名骨架'}
+            onClose={() => setBindFolder(null)}
+          />
+          {bindFolder && (
+            <>
+              <div className="space-y-4 p-6">
+                {/* 当前有效骨架（含继承来源） */}
+                {(() => {
+                  const eff = effectiveTemplateRef(state.files, bindFolder.id, state.namingTemplates)
+                  return (
+                    <div className="rounded-xl bg-gray-50 px-4 py-3 ring-1 ring-gray-100">
+                      <div className="text-xs text-gray-400">
+                        当前有效骨架
+                        {eff ? (eff.inherited ? `（继承自：${eff.holder.name}）` : '（本目录绑定）') : ''}
+                      </div>
+                      {eff ? (
+                        <div className="mt-1 space-y-1.5">
+                          <div className="text-sm font-medium text-teal-600">{eff.template.name}</div>
+                          <SkeletonText value={eff.template.skeleton} />
+                        </div>
+                      ) : (
+                        <div className="mt-1 text-sm text-gray-400">本目录及上级均未绑定骨架，上传时不启用命名向导</div>
+                      )}
+                    </div>
+                  )
+                })()}
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-gray-500">选择骨架（仅列出启用中；选「不绑定」即清除本目录绑定）</span>
+                  <ToolbarSelect
+                    className="w-full [&>select]:w-full"
+                    value={bindSel}
+                    onChange={setBindSel}
+                    options={[
+                      { value: '', label: '（不绑定）' },
+                      ...state.namingTemplates
+                        .filter((t) => t.status === '启用')
+                        .map((t) => ({ value: t.id, label: t.name })),
+                    ]}
+                  />
+                </label>
+                <p className="text-xs leading-relaxed text-gray-400">
+                  绑定 / 换绑 / 解绑仅影响后续上传的文件命名，存量文件名不会改变；子目录未自行绑定时自动继承本目录骨架。
+                </p>
+              </div>
+              <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
+                <Button variant="outline" size="sm" disabled={!bindFolder.namingTemplateId} onClick={unbind}>
+                  解绑本目录
+                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setBindFolder(null)}>
+                    取消
+                  </Button>
+                  <Button size="sm" className="gap-1.5 bg-teal-500 text-white hover:bg-teal-600" onClick={saveBind}>
+                    <Braces className="h-3.5 w-3.5" /> 保存
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <CatalogDialog open={dialogOpen} onOpenChange={setDialogOpen} type={type} />
       {detail && (

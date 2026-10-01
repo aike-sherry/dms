@@ -16,7 +16,14 @@ import {
   resolveChainVersion,
   type ChainResolution,
 } from '@/lib/smartDoc'
-import { useStore, nextId, todayStr, fmtSize, EXECUTOR_NAME, EXECUTOR_CENTER, type TmfFile } from '@/store'
+import {
+  effectiveTemplateRef,
+  renderSkeleton,
+  appendDupSuffix,
+  VERSION_OPTIONS,
+  DOC_STATUS_OPTIONS,
+} from '@/lib/namingSkeleton'
+import { useStore, nextId, todayStr, nowStr, fmtSize, displayNameOf, EXECUTOR_NAME, EXECUTOR_CENTER, type TmfFile, type NamingTemplate, type NamingLog } from '@/store'
 
 const FALLBACK_PROJECTS = ['ON101CL01', 'ON101CL103', 'ON101CLCT01']
 
@@ -24,6 +31,16 @@ const FALLBACK_PROJECTS = ['ON101CL01', 'ON101CL103', 'ON101CLCT01']
 interface PendingItem {
   file: File
   relName: string
+}
+
+/** R39 命名向导行状态（模式A：目录绑定命名范式）：docType 存字典 code（{文件类型简称} 取值）；
+    override/dirty 为 CRA 手动覆盖预览名（PRD：允许手动修改，但必须确认，不静默重命名） */
+interface WizRow {
+  docType: string
+  versionNo: string
+  docStatus: string
+  override: string
+  dirty: boolean
 }
 
 /** 上传弹窗：卡片式选择「上传文件 / 上传文件夹」，支持拖拽上传（自动识别文件夹）；
@@ -68,6 +85,8 @@ export default function UploadDialog({
   const [pending, setPending] = useState<PendingItem[]>([])
   const [dirRoot, setDirRoot] = useState<string | null>(null)
   const [selections, setSelections] = useState<Record<number, string>>({})
+  /* R39 命名向导：每行命中「绑定骨架」目标文档时的向导字段（随 selections 同步初始化/清理） */
+  const [wiz, setWiz] = useState<Record<number, WizRow>>({})
   /* R34 PM 暂存确认流：页面拖拽/暂存态下选择的文件先进入 staged，底部「确认上传」一次性落库 */
   const [staged, setStaged] = useState<PendingItem[] | null>(null)
   const [stagedRoot, setStagedRoot] = useState<string | null>(null)
@@ -153,6 +172,70 @@ export default function UploadDialog({
   const pmFolders = useMemo(() => [...pmFolderMap.keys()].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN')), [pmFolderMap])
   const docOptions = pmFolders.length > 0 ? pmFolders : DOC_TYPE_NAMES
 
+  /* ---------- R39 命名向导（模式A：目录绑定命名范式） ---------- */
+  /* 该行目标文档是否命中「绑定骨架」：目标为真实 PM 文件夹且其自身/上级继承绑定了启用中骨架 */
+  const boundRef = (i: number) => {
+    const sel = selections[i]
+    if (!sel) return null
+    const folder = pmFolderMap.get(sel)
+    if (!folder) return null
+    const eff = effectiveTemplateRef(state.files, folder.id, state.namingTemplates)
+    if (!eff || eff.template.status !== '启用') return null
+    return { folder, eff }
+  }
+  /* 类型下拉选项：骨架 docTypeFilter 限定时只列限定类型，否则全字典 */
+  const docTypeChoicesFor = (tpl: NamingTemplate) => {
+    const filter = tpl.docTypeFilter
+    return filter && filter.length > 0 ? state.docTypes.filter((d) => filter.includes(d.id)) : state.docTypes
+  }
+  const patchWiz = (i: number, patch: Partial<WizRow>) =>
+    setWiz((s) => (s[i] ? { ...s, [i]: { ...s[i], ...patch } } : s))
+  /* 向导行骨架实时渲染：试验编号/中心/日期自动带入；SAE序号、访视编号留空（renderSkeleton 整段剔除） */
+  const wizRender = (tpl: NamingTemplate, w: WizRow) =>
+    renderSkeleton(tpl.skeleton, {
+      试验编号: projectNo,
+      中心编号: centerSel,
+      YYYYMMDD: todayStr().replaceAll('-', ''),
+      文件类型简称: w.docType,
+      版本号: w.versionNo,
+      文档状态: w.docStatus,
+      SAE序号: '',
+      访视编号: '',
+    })
+  /* 目标文件夹内现存展示名（重名检测用） */
+  const folderChildNames = (folderId: string) =>
+    state.files.filter((f) => f.parentId === folderId || f.targetFolderId === folderId).map(displayNameOf)
+  /* selections 变化 → 命中绑定的行初始化向导（类型预选沿用 analyzeName 识别），未命中行清理向导 */
+  useEffect(() => {
+    if (!withNamingConfirm) return
+    setWiz((prev) => {
+      const next: Record<number, WizRow> = {}
+      let changed = false
+      pending.forEach((p, i) => {
+        const sel = selections[i]
+        const folder = sel ? pmFolderMap.get(sel) : undefined
+        const eff = folder ? effectiveTemplateRef(state.files, folder.id, state.namingTemplates) : null
+        if (!eff || eff.template.status !== '启用') {
+          if (prev[i]) changed = true
+          return
+        }
+        if (prev[i]) {
+          next[i] = prev[i]
+          return
+        }
+        changed = true
+        const a = analyzeName(p.relName)
+        const choices = docTypeChoicesFor(eff.template)
+        const hit = a.matched
+          ? choices.find((d) => d.code.includes(a.docType) || a.docType.includes(d.code) || d.name.includes(a.docType))
+          : undefined
+        next[i] = { docType: hit?.code ?? '', versionNo: '1.0', docStatus: '草稿', override: '', dirty: false }
+      })
+      return changed ? next : prev
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [withNamingConfirm, pending, selections, pmFolderMap, state.namingTemplates, state.docTypes])
+
   /* 项目或中心变更 → 目标文档选项刷新：已选但不在新选项中的清空重选 */
   useEffect(() => {
     setSelections((prev) => {
@@ -216,6 +299,7 @@ export default function UploadDialog({
     setPending([])
     setDirRoot(null)
     setSelections({})
+    setWiz({})
     setStaged(null)
     setStagedRoot(null)
   }
@@ -271,20 +355,79 @@ export default function UploadDialog({
     })
   }, [withNamingConfirm, pending, selections, state.files, state.namingTemplate, projectNo, centerSel, uploader])
 
-  const allSelected = pending.length > 0 && pending.every((_, i) => !!selections[i])
+  /* R39：向导行（命中绑定骨架）除目标文档外还必须选择文档类型 */
+  const allSelected =
+    pending.length > 0 &&
+    pending.every((_, i) => {
+      if (!selections[i]) return false
+      if (boundRef(i) && !wiz[i]?.docType) return false
+      return true
+    })
 
   /* 确认上传：按模板渲染结果落库（版本链关联历史版本），文件夹上传时文件夹名不变、子文件挂为其子级；
-     目标文档对应真实 PM 文件夹时写入 targetFolderId（审核通过后直接归档进该文件夹） */
+     目标文档对应真实 PM 文件夹时写入 targetFolderId（审核通过后直接归档进该文件夹）。
+     R39 向导行：按绑定骨架渲染最终名（允许 CRA 手动覆盖），重名自动追加（2）（3）…；
+     落库写 originalFilename（永不可改）/displayFilename/namingTemplateId/业务字段，并追加 NamingLog 审计 */
   const confirmNaming = () => {
     if (!allSelected) {
-      toast.warning('请为每个文件选择目标文档', { description: '未选择目标文档的文件无法按规则命名' })
+      toast.warning('请完成每个文件的命名确认', { description: '未选择目标文档、或向导行未选择文档类型的文件无法按规则命名' })
       return
     }
     const folderId = dirRoot ? nextId('f') : undefined
+    /* 目标文件夹 → 现存展示名集合（含本批已确定名），供重名追加（2）（3） */
+    const takenByFolder = new Map<string, Set<string>>()
+    const takenOf = (fid: string) => {
+      let s = takenByFolder.get(fid)
+      if (!s) {
+        s = new Set(folderChildNames(fid))
+        takenByFolder.set(fid, s)
+      }
+      return s
+    }
+    const namingLogs: NamingLog[] = []
+    const suffixedNotes: string[] = []
+    const finalNames: string[] = []
     const files: TmfFile[] = pending.map((p, i) => {
       const target = pmFolderMap.get(selections[i])
+      const id = nextId('f')
+      const b = boundRef(i)
+      const w = wiz[i]
+      if (b && w) {
+        /* 向导行：骨架渲染（或手动覆盖）→ 目标文件夹内重名自动追加序号 */
+        const rendered = wizRender(b.eff.template, w)
+        const want = ((w.dirty ? w.override.trim() : rendered) || rendered || p.relName).trim()
+        const finalName = appendDupSuffix(want, takenOf(b.folder.id))
+        if (finalName !== want) suffixedNotes.push(`目标文件夹内已存在同名文件，已自动命名为 ${finalName}`)
+        takenOf(b.folder.id).add(finalName)
+        finalNames.push(finalName)
+        namingLogs.push({
+          id: nextId('nl'),
+          fileId: id,
+          operator: uploader,
+          time: nowStr(),
+          action: '创建命名',
+          oldValue: '',
+          newValue: finalName,
+        })
+        return {
+          id,
+          name: finalName,
+          displayFilename: finalName,
+          originalFilename: p.file.name,
+          namingTemplateId: b.eff.template.id,
+          versionNo: w.versionNo,
+          docStatus: w.docStatus,
+          docType: w.docType,
+          kind: 'pdf' as const,
+          ...baseFields(),
+          size: fmtSize(p.file.size),
+          ...(folderId ?? fixedParentId ? { parentId: (folderId ?? fixedParentId) as string } : {}),
+          targetFolderId: b.folder.id,
+        }
+      }
+      finalNames.push(previews[i]?.name ?? p.relName)
       return {
-        id: nextId('f'),
+        id,
         name: previews[i]?.name ?? p.relName,
         kind: 'pdf' as const,
         ...baseFields(),
@@ -309,14 +452,18 @@ export default function UploadDialog({
     } else {
       dispatch({ type: 'addFiles', files })
     }
+    if (namingLogs.length > 0) dispatch({ type: 'addNamingLogs', logs: namingLogs })
     notifyAutoName({
       title: dirRoot ? `已上传文件夹「${dirRoot}」（${files.length} 个文件）` : `已上传 ${files.length} 个文件`,
-      renamed: pending.map((p, i) => `${p.relName} → ${previews[i]?.name ?? p.relName}`),
+      renamed: pending.map((p, i) => `${p.relName} → ${finalNames[i]}`),
       unmatched: 0,
       extra: `项目编号：${projectNo}，已按命名规则生成规范文件名`,
-      versionNotes: previews
-        .map((pv) => (pv?.chain.prevVersion ? `检测到历史版本 ${pv.chain.prevVersion}，已命名为 ${pv.name} 并关联历史版本` : ''))
-        .filter((s): s is string => !!s),
+      versionNotes: [
+        ...previews
+          .map((pv) => (pv?.chain.prevVersion ? `检测到历史版本 ${pv.chain.prevVersion}，已命名为 ${pv.name} 并关联历史版本` : ''))
+          .filter((s): s is string => !!s),
+        ...suffixedNotes,
+      ],
     })
     resetAll()
     onOpenChange(false)
@@ -712,26 +859,99 @@ export default function UploadDialog({
               {pmFolders.length === 0 && '（该中心暂未建文件夹，使用标准文档类型）'}
               ；选择后按命名规则自动生成规范文件名，版本号沿用历史版本自动递增。
             </p>
-            <div className="max-h-56 overflow-auto rounded-xl border border-gray-100">
-              {pending.map((p, i) => (
-                <div key={i} className="flex items-center gap-3 border-b border-gray-50 px-4 py-3 last:border-0">
-                  <div className="w-44 shrink-0 truncate text-xs text-gray-500" title={p.relName}>
-                    {p.relName}
+            <div className="max-h-80 overflow-auto rounded-xl border border-gray-100">
+              {pending.map((p, i) => {
+                const b = boundRef(i)
+                const w = wiz[i]
+                return (
+                  <div key={i} className="border-b border-gray-50 px-4 py-3 last:border-0">
+                    <div className="flex items-center gap-3">
+                      <div className="w-44 shrink-0 truncate text-xs text-gray-500" title={p.relName}>
+                        {p.relName}
+                      </div>
+                      <ToolbarSelect
+                        value={selections[i] ?? ''}
+                        onChange={(v) => setSelections((s) => ({ ...s, [i]: v }))}
+                        options={[
+                          { label: '请选择目标文档', value: '' },
+                          ...docOptions.map((o) => ({ label: o, value: o })),
+                        ]}
+                        className="w-40 shrink-0 [&>select]:w-full"
+                      />
+                      {b ? (
+                        <span
+                          title={b.eff.inherited ? `骨架继承自目录：${b.eff.holder.name}` : '该目录已绑定命名骨架'}
+                          className="ml-auto shrink-0 cursor-help rounded-full bg-teal-50 px-2 py-0.5 text-[11px] whitespace-nowrap text-teal-600 ring-1 ring-teal-100"
+                        >
+                          骨架·{b.eff.template.name}
+                          {b.eff.inherited ? '（继承）' : ''}
+                        </span>
+                      ) : (
+                        <div className={cn('min-w-0 flex-1 text-xs break-all', previews[i] ? 'font-medium text-teal-600' : 'text-gray-300')}>
+                          {previews[i]?.name ?? '选择目标文档后预览新文件名'}
+                        </div>
+                      )}
+                    </div>
+                    {/* R39 命名向导区：命中绑定骨架目录时展开——业务字段下拉 + 实时预览 + 手动覆盖 */}
+                    {b && w && (
+                      <div className="mt-2 space-y-2 rounded-lg bg-teal-50/40 p-3 ring-1 ring-teal-100/60">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <ToolbarSelect
+                            value={w.docType}
+                            onChange={(v) => patchWiz(i, { docType: v })}
+                            options={[
+                              { label: '文档类型 *', value: '' },
+                              ...docTypeChoicesFor(b.eff.template).map((d) => ({ label: `${d.code}｜${d.name}`, value: d.code })),
+                            ]}
+                            className="w-44 [&>select]:w-full"
+                          />
+                          <ToolbarSelect
+                            value={w.versionNo}
+                            onChange={(v) => patchWiz(i, { versionNo: v })}
+                            options={VERSION_OPTIONS.map((v) => ({ label: `V${v}`, value: v }))}
+                            className="w-24 [&>select]:w-full"
+                          />
+                          <ToolbarSelect
+                            value={w.docStatus}
+                            onChange={(v) => patchWiz(i, { docStatus: v })}
+                            options={[...DOC_STATUS_OPTIONS]}
+                            className="w-24 [&>select]:w-full"
+                          />
+                          <span className="text-[11px] text-gray-400">试验编号 / 中心 / 日期已自动带入</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="shrink-0 text-[11px] text-gray-400">文件名预览</span>
+                          <input
+                            value={w.dirty ? w.override : wizRender(b.eff.template, w)}
+                            onChange={(e) => patchWiz(i, { override: e.target.value, dirty: true })}
+                            title="可手动修改；确认后以修改内容为准"
+                            className={cn(
+                              'h-8 min-w-0 flex-1 rounded-md border px-2 text-xs outline-none focus:ring-2',
+                              w.dirty
+                                ? 'border-amber-300 bg-amber-50/50 text-amber-700 focus:ring-amber-100'
+                                : 'border-teal-200 bg-white font-medium text-teal-600 focus:ring-teal-100',
+                            )}
+                          />
+                          {w.dirty && (
+                            <button
+                              type="button"
+                              onClick={() => patchWiz(i, { override: '', dirty: false })}
+                              className="shrink-0 text-[11px] text-teal-500 hover:underline"
+                            >
+                              恢复骨架
+                            </button>
+                          )}
+                        </div>
+                        {!w.docType && <div className="text-[11px] text-amber-500">请选择文档类型后才能确认上传</div>}
+                        {w.docType &&
+                          folderChildNames(b.folder.id).includes(w.dirty ? w.override : wizRender(b.eff.template, w)) && (
+                            <div className="text-[11px] text-amber-500">目标文件夹内已存在同名文件，确认时将自动追加（2）</div>
+                          )}
+                      </div>
+                    )}
                   </div>
-                  <ToolbarSelect
-                    value={selections[i] ?? ''}
-                    onChange={(v) => setSelections((s) => ({ ...s, [i]: v }))}
-                    options={[
-                      { label: '请选择目标文档', value: '' },
-                      ...docOptions.map((o) => ({ label: o, value: o })),
-                    ]}
-                    className="w-40 shrink-0 [&>select]:w-full"
-                  />
-                  <div className={cn('min-w-0 flex-1 text-xs break-all', previews[i] ? 'font-medium text-teal-600' : 'text-gray-300')}>
-                    {previews[i]?.name ?? '选择目标文档后预览新文件名'}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}

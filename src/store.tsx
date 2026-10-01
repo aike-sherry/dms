@@ -31,6 +31,19 @@ export interface TmfFile {
   /** CRA 确认命名时选中的目标文件夹 id（PM 在该中心 SITE TMF 下已建的文件夹）；
       审核通过后直接归档进该文件夹、跳过路由表；选的是回退标准类型时无此字段 */
   targetFolderId?: string
+  /* ===== R39 模式A：目录绑定命名范式骨架（GCP 合规字段） ===== */
+  /** 文件夹绑定的命名骨架 id（仅 kind='folder' 有意义；解析有效骨架时沿祖先链向上找最近绑定——绑定继承） */
+  namingTemplateId?: string
+  /** 原始上传文件名：永久保存不可改（审计溯源），仅创建时写入一次 */
+  originalFilename?: string
+  /** 对外展示/下载用文件名；每次修改写 namingLogs 审计。旧数据缺失时兜底 = name */
+  displayFilename?: string
+  /** 版本号（独立业务字段，如 '1.0'；业务逻辑禁止从文件名字符串解析） */
+  versionNo?: string
+  /** 文档状态：草稿/审核中/终版/作废（独立业务字段） */
+  docStatus?: string
+  /** 文档类型简称（独立业务字段，取自 docTypes 字典 code） */
+  docType?: string
 }
 
 export interface Catalog {
@@ -84,6 +97,61 @@ export interface Center {
   cra: string
 }
 
+/* ===== R39 模式A：命名范式骨架库 / 文档类型字典 / 命名审计 ===== */
+
+/** 命名范式骨架（全局库，仅 admin 可维护语法；PM 只能选用启用中的骨架绑定目录）。
+    骨架字符串用 {} 占位符；docTypeFilter 限定可选文档类型（id 列表，空=不过滤，二阶段字典筛选扩展点已预留） */
+export interface NamingTemplate {
+  id: string
+  name: string
+  skeleton: string
+  status: '启用' | '停用'
+  remark?: string
+  docTypeFilter?: string[]
+}
+
+/** 文档类型字典：简称=命名占位符 {文件类型简称} 的取值；分类用于字典筛选/管理 */
+export interface DocType {
+  id: string
+  code: string
+  name: string
+  category: string
+}
+
+/** 命名审计日志：创建命名与每次 displayFilename 修改各写一条（操作人/时间/旧值/新值） */
+export interface NamingLog {
+  id: string
+  fileId: string
+  operator: string
+  /** YYYY-MM-DD HH:mm */
+  time: string
+  action: '创建命名' | '修改文件名'
+  oldValue: string
+  newValue: string
+}
+
+/** 骨架库种子：系统配置，不受 DEMO_MODE 影响，始终加载（业务数据仍为空） */
+export const DEFAULT_NAMING_TEMPLATES: NamingTemplate[] = [
+  { id: 'nt1', name: '方案类文件命名', skeleton: '{试验编号}-{文件类型简称}-V{版本号}-{YYYYMMDD}', status: '启用', remark: '方案/知情同意等通用文档', docTypeFilter: ['dt1', 'dt2', 'dt4'] },
+  { id: 'nt2', name: 'SAE 上报资料', skeleton: '{试验编号}-{中心编号}-SAE{SAE序号}-{文件类型简称}-{YYYYMMDD}', status: '启用', remark: '严重不良事件上报专用', docTypeFilter: ['dt7', 'dt8'] },
+  { id: 'nt3', name: '会议纪要命名', skeleton: '{试验编号}-{文件类型简称}-{YYYYMMDD}-V{版本号}', status: '启用', remark: '会议记录/沟通材料', docTypeFilter: ['dt9'] },
+  { id: 'nt4', name: '访视报告命名（停用示例）', skeleton: '{试验编号}-{中心编号}-{访视编号}-{文件类型简称}-{YYYYMMDD}', status: '停用', remark: '待 SIV/RMV 编号规则确认后启用', docTypeFilter: ['dt10'] },
+]
+
+/** 文档类型字典种子：系统配置，不受 DEMO_MODE 影响 */
+export const DEFAULT_DOC_TYPES: DocType[] = [
+  { id: 'dt1', code: '方案', name: '临床试验方案', category: '方案' },
+  { id: 'dt2', code: '知情同意', name: '知情同意书', category: '伦理' },
+  { id: 'dt3', code: '伦理批件', name: '伦理委员会批件', category: '伦理' },
+  { id: 'dt4', code: '方案修订', name: '方案修订案/补充说明', category: '方案' },
+  { id: 'dt5', code: '简历', name: '研究者简历', category: '人员' },
+  { id: 'dt6', code: '实验室报告', name: '实验室检验报告', category: '数据' },
+  { id: 'dt7', code: 'SAE报告', name: '严重不良事件报告表', category: 'SAE' },
+  { id: 'dt8', code: 'SAE随访', name: 'SAE 随访/总结报告', category: 'SAE' },
+  { id: 'dt9', code: '会议纪要', name: '会议纪要/沟通记录', category: '会议' },
+  { id: 'dt10', code: '访视报告', name: '监查访视报告', category: '监查' },
+]
+
 /** 默认归档路由：系统配置，不受 DEMO_MODE 影响，始终加载 */
 export const DEFAULT_ARCHIVE_ROUTES: ArchiveRoute[] = Object.entries(DEFAULT_ZONE_BY_DOC_TYPE).map(
   ([docType, zone], i) => ({ id: `ar${i + 1}`, docType, zone }),
@@ -118,6 +186,12 @@ export interface State {
   customers: Customer[]
   /** 后台管理：用户登录日志（最新在前） */
   loginLogs: LoginLog[]
+  /** R39 命名范式骨架库（admin 维护语法，PM 选用绑定；系统配置不受 DEMO_MODE 影响） */
+  namingTemplates: NamingTemplate[]
+  /** R39 文档类型字典（admin 维护） */
+  docTypes: DocType[]
+  /** R39 命名审计日志（创建命名 + displayFilename 修改） */
+  namingLogs: NamingLog[]
 }
 
 /* ================= 账号体系 ================= */
@@ -307,6 +381,9 @@ export function fmtSize(bytes: number) {
 
 let uid = 1000
 export const nextId = (prefix: string) => `${prefix}-${++uid}`
+
+/** R39：对外展示/下载用文件名——旧数据无 displayFilename 字段时兜底 = name（合规兜底口径） */
+export const displayNameOf = (f: Pick<TmfFile, 'name' | 'displayFilename'>) => f.displayFilename ?? f.name
 
 /* ================= 种子数据 ================= */
 
@@ -590,6 +667,10 @@ function initialState(): State {
     accountDeleted: persisted?.accountDeleted ?? 0,
     customers: persisted?.customers ?? (DEMO_MODE ? seedCustomers : []),
     loginLogs: persisted?.loginLogs ?? (DEMO_MODE ? seedLoginLogs : []),
+    /* R39：骨架库/字典为系统配置，不受 DEMO_MODE 影响；namingLogs 为审计数据，空白环境从空开始 */
+    namingTemplates: persisted?.namingTemplates ?? DEFAULT_NAMING_TEMPLATES,
+    docTypes: persisted?.docTypes ?? DEFAULT_DOC_TYPES,
+    namingLogs: persisted?.namingLogs ?? [],
   }
 }
 
@@ -620,6 +701,10 @@ interface PersistedData {
   accountDeleted?: number
   customers?: Customer[]
   loginLogs?: LoginLog[]
+  /** R39：骨架库/字典（缺失回退默认）与命名审计（缺失回退空） */
+  namingTemplates?: NamingTemplate[]
+  docTypes?: DocType[]
+  namingLogs?: NamingLog[]
 }
 
 /** 读取持久化业务数据；损坏或字段缺失时回退种子数据 */
@@ -664,6 +749,9 @@ function serializeData(state: State): string {
     accountDeleted: state.accountDeleted,
     customers: state.customers,
     loginLogs: state.loginLogs,
+    namingTemplates: state.namingTemplates,
+    docTypes: state.docTypes,
+    namingLogs: state.namingLogs,
   }
   return JSON.stringify(data)
 }
@@ -715,6 +803,16 @@ export type Action =
   | { type: 'addCustomer'; customer: Customer }
   | { type: 'updateCustomer'; id: string; patch: Partial<Omit<Customer, 'id'>> }
   | { type: 'removeCustomer'; id: string }
+  /* ===== R39 命名骨架库 / 文档类型字典 / 目录绑定 / 命名审计 ===== */
+  | { type: 'addNamingTemplate'; template: NamingTemplate }
+  | { type: 'updateNamingTemplate'; id: string; patch: Partial<Omit<NamingTemplate, 'id'>> }
+  | { type: 'addDocType'; docType: DocType }
+  | { type: 'updateDocType'; id: string; patch: Partial<Omit<DocType, 'id'>> }
+  | { type: 'removeDocType'; id: string }
+  /** PM 目录绑定/换绑/解绑（templateId=null 即解绑）；仅影响后续上传，存量文件名不动 */
+  | { type: 'setFolderTemplate'; id: string; templateId: string | null }
+  /** 追加命名审计日志（创建命名 / 修改 displayFilename） */
+  | { type: 'addNamingLogs'; logs: NamingLog[] }
 
 /** 当前时间格式化为 YYYY-MM-DD HH:mm（登录日志用） */
 export function nowStr() {
@@ -984,6 +1082,9 @@ function reducer(state: State, action: Action): State {
         accountDeleted: d.accountDeleted ?? state.accountDeleted,
         customers: d.customers ?? state.customers,
         loginLogs: d.loginLogs ?? state.loginLogs,
+        namingTemplates: d.namingTemplates ?? state.namingTemplates,
+        docTypes: d.docTypes ?? state.docTypes,
+        namingLogs: d.namingLogs ?? state.namingLogs,
       }
     }
     /* ===== 后台管理：账户配置 ===== */
@@ -1015,6 +1116,37 @@ function reducer(state: State, action: Action): State {
       }
     case 'removeCustomer':
       return { ...state, customers: state.customers.filter((c) => c.id !== action.id) }
+    /* ===== R39 命名骨架库 / 字典 / 目录绑定 / 审计 ===== */
+    case 'addNamingTemplate':
+      return { ...state, namingTemplates: [...state.namingTemplates, action.template] }
+    case 'updateNamingTemplate':
+      return {
+        ...state,
+        namingTemplates: state.namingTemplates.map((t) => (t.id === action.id ? { ...t, ...action.patch } : t)),
+      }
+    case 'addDocType':
+      return { ...state, docTypes: [...state.docTypes, action.docType] }
+    case 'updateDocType':
+      return {
+        ...state,
+        docTypes: state.docTypes.map((d) => (d.id === action.id ? { ...d, ...action.patch } : d)),
+      }
+    case 'removeDocType':
+      return { ...state, docTypes: state.docTypes.filter((d) => d.id !== action.id) }
+    case 'setFolderTemplate':
+      return {
+        ...state,
+        files: state.files.map((f) =>
+          f.id === action.id
+            ? action.templateId
+              ? { ...f, namingTemplateId: action.templateId }
+              : { ...f, namingTemplateId: undefined }
+            : f,
+        ),
+      }
+    case 'addNamingLogs':
+      /* 审计日志只增不改；上限 2000 条防无限膨胀 */
+      return { ...state, namingLogs: [...action.logs, ...state.namingLogs].slice(0, 2000) }
   }
 }
 
@@ -1049,7 +1181,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch {
       /* 存储满或不可用时静默失败，不影响内存态 */
     }
-  }, [state.files, state.catalogs, state.submissions, state.submissionSchedule, state.archiveRoutes, state.namingTemplate, state.favorites, state.craMap, state.centers, state.pmMap, state.accounts, state.accountDeleted, state.customers, state.loginLogs])
+  }, [state.files, state.catalogs, state.submissions, state.submissionSchedule, state.archiveRoutes, state.namingTemplate, state.favorites, state.craMap, state.centers, state.pmMap, state.accounts, state.accountDeleted, state.customers, state.loginLogs, state.namingTemplates, state.docTypes, state.namingLogs])
 
   /* R35 跨标签页同步：其他标签页写入 clinx-data-v2 时本标签页即时水合最新业务数据
      （保留本会话的登录态/角色/项目筛选；storage 事件只在本标签页之外触发，不会自环） */

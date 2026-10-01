@@ -18,6 +18,7 @@ import ExSubmission from '@/pages/executor/ExSubmission'
 import AdminDashboard from '@/pages/admin/AdminDashboard'
 import AdminAccounts from '@/pages/admin/AdminAccounts'
 import AdminCustomers from '@/pages/admin/AdminCustomers'
+import AdminNaming from '@/pages/admin/AdminNaming'
 import { StoreProvider, useStore, type Role } from '@/store'
 import { ThemeBgProvider } from '@/lib/theme'
 
@@ -32,6 +33,7 @@ const pageTitles: Record<PageKey, string> = {
   dashboard: 'DASHBOARD',
   accounts: 'ACCOUNTS',
   customers: 'CUSTOMERS',
+  naming: 'NAMING',
 }
 
 const pageKeys = Object.keys(pageTitles) as PageKey[]
@@ -113,6 +115,8 @@ function Shell() {
           return <AdminAccounts />
         case 'customers':
           return <AdminCustomers />
+        case 'naming':
+          return <AdminNaming />
         default:
           return <AdminDashboard />
       }
