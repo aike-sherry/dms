@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { Plus, Download, ChevronRight, Upload, Pencil, Braces } from 'lucide-react'
+import { Plus, Download, ChevronRight, Upload, Pencil, Braces, History } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -24,7 +24,7 @@ import TmfUploadDialog from '@/components/TmfUploadDialog'
 import { SkeletonText } from '@/pages/admin/AdminNaming'
 import { effectiveTemplateRef } from '@/lib/namingSkeleton'
 import { projectOptions } from '@/data/mock'
-import { useStore, craNameOf, type Catalog, type TmfFile } from '@/store'
+import { useStore, craNameOf, displayNameOf, PM_USER, type Catalog, type TmfFile } from '@/store'
 
 /* R39 文件夹行命名骨架徽标：本目录绑定=teal「骨架·xx」；上级继承=灰「继承·xx」（title 提示继承来源） */
 function FolderTemplateBadge({ folderId }: { folderId: string }) {
@@ -88,6 +88,33 @@ export default function TmfPage({ type }: { type: 'study' | 'site' }) {
     dispatch({ type: 'setFolderTemplate', id: bindFolder.id, templateId: null })
     toast.success('已解绑本目录骨架', { description: '后续上传将跟随上级目录的绑定（如有）；存量文件名不变' })
     setBindFolder(null)
+  }
+  /* R39 二阶段A：文件属性弹窗（展示名改名写审计 + 命名历史时间线） */
+  const [attrFileId, setAttrFileId] = useState<string | null>(null)
+  const [attrName, setAttrName] = useState('')
+  const attrFile = attrFileId ? (state.files.find((f) => f.id === attrFileId) ?? null) : null
+  const attrLogs = useMemo(
+    () => (attrFileId ? state.namingLogs.filter((l) => l.fileId === attrFileId) : []),
+    [state.namingLogs, attrFileId],
+  )
+  const openAttr = (f: TmfFile) => {
+    setAttrFileId(f.id)
+    setAttrName(displayNameOf(f))
+  }
+  const saveAttrName = () => {
+    if (!attrFile) return
+    const name = attrName.trim()
+    if (!name) {
+      toast.warning('展示名不能为空')
+      return
+    }
+    if (name === displayNameOf(attrFile)) {
+      setAttrFileId(null)
+      return
+    }
+    dispatch({ type: 'renameDisplayFilename', id: attrFile.id, name, operator: PM_USER.name, role: 'pm' })
+    toast.success('展示名已更新', { description: '原始文件名保持不变，本次修改已写入命名审计' })
+    setAttrFileId(null)
   }
   /* R27 钻取列表文件夹行内重命名（含目录顶层文件夹行）：铅笔入口 → 行内输入框，回车/失焦保存、Esc 取消 */
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -549,7 +576,7 @@ export default function TmfPage({ type }: { type: 'study' | 'site' }) {
                             {f.name}
                           </button>
                         ) : (
-                          <span className="truncate text-gray-700">{f.name}</span>
+                          <span className="truncate text-gray-700">{displayNameOf(f)}</span>
                         )}
                         {f.kind === 'folder' && (
                           <button
@@ -576,7 +603,7 @@ export default function TmfPage({ type }: { type: 'study' | 'site' }) {
                     {f.kind === 'folder' ? (
                       <TealLink onClick={() => openBind(f)}>绑定骨架</TealLink>
                     ) : (
-                      <span className="text-gray-300">—</span>
+                      <TealLink onClick={() => openAttr(f)}>属性</TealLink>
                     )}
                   </Td>
                 </Tr>
@@ -654,6 +681,109 @@ export default function TmfPage({ type }: { type: 'study' | 'site' }) {
                     <Braces className="h-3.5 w-3.5" /> 保存
                   </Button>
                 </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* R39 二阶段A 文件属性弹窗：原文件名只读 / 展示名可改（写审计）/ 业务字段 / 命名历史时间线 */}
+      <Dialog open={!!attrFile} onOpenChange={(o) => !o && setAttrFileId(null)}>
+        <DialogContent showCloseButton={false} className="gap-0 overflow-hidden rounded-2xl border-0 p-0 sm:max-w-xl">
+          <DialogTitle className="sr-only">文件属性</DialogTitle>
+          <ModalHeader title={attrFile ? `文件属性 · ${displayNameOf(attrFile)}` : '文件属性'} onClose={() => setAttrFileId(null)} />
+          {attrFile && (
+            <>
+              <div className="space-y-4 p-6">
+                <div className="grid grid-cols-2 gap-3 rounded-xl bg-gray-50 px-4 py-3 ring-1 ring-gray-100 text-xs">
+                  <div>
+                    <div className="text-gray-400">原始文件名（系统留档，不可修改）</div>
+                    <div className="mt-0.5 font-mono break-all text-gray-600">{attrFile.originalFilename ?? '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-400">所属项目 / 更新人员</div>
+                    <div className="mt-0.5 text-gray-600">
+                      {attrFile.projectNo} / {attrFile.uploader}
+                    </div>
+                  </div>
+                  <div className="col-span-2 flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-gray-400">业务字段：</span>
+                    {[
+                      attrFile.docType ? `类型 ${attrFile.docType}` : null,
+                      attrFile.versionNo ? `V${attrFile.versionNo}` : null,
+                      attrFile.docStatus ?? null,
+                      attrFile.namingTemplateId
+                        ? `骨架 ${state.namingTemplates.find((t) => t.id === attrFile.namingTemplateId)?.name ?? attrFile.namingTemplateId}`
+                        : null,
+                    ]
+                      .filter((s): s is string => !!s)
+                      .map((s) => (
+                        <span key={s} className="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] text-teal-600 ring-1 ring-teal-100">
+                          {s}
+                        </span>
+                      ))}
+                    {!attrFile.docType && !attrFile.versionNo && !attrFile.docStatus && !attrFile.namingTemplateId && (
+                      <span className="text-gray-300">未经过命名向导（旧数据）</span>
+                    )}
+                  </div>
+                </div>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-gray-500">展示名（改动将写入命名审计；原始文件名不变）</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={attrName}
+                      onChange={(e) => setAttrName(e.target.value)}
+                      className="h-9 min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50/60 px-3 text-center text-sm text-gray-700 outline-none focus:border-teal-500 focus:bg-white"
+                    />
+                    <Button size="sm" className="shrink-0 bg-teal-500 text-white hover:bg-teal-600" onClick={saveAttrName}>
+                      保存
+                    </Button>
+                  </div>
+                </label>
+                {/* 命名历史时间线（新→旧） */}
+                <div>
+                  <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                    <History className="h-3.5 w-3.5" /> 命名历史（{attrLogs.length} 条）
+                  </div>
+                  {attrLogs.length === 0 ? (
+                    <div className="rounded-lg bg-gray-50 px-3 py-2.5 text-xs text-gray-400 ring-1 ring-gray-100">
+                      暂无命名记录（该文件未经命名向导，或为旧数据）
+                    </div>
+                  ) : (
+                    <ul className="max-h-48 space-y-0 overflow-y-auto pr-1">
+                      {attrLogs.map((l, idx) => (
+                        <li key={l.id} className="relative border-l-2 border-teal-100 pb-3 pl-4 last:pb-0">
+                          <span className="absolute top-1 -left-[5px] h-2 w-2 rounded-full bg-teal-400 ring-2 ring-teal-50" />
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-400">
+                            <span className="font-mono">{l.time}</span>
+                            <span
+                              className={
+                                l.action === '修改文件名'
+                                  ? 'rounded-full bg-amber-50 px-1.5 py-0.5 text-amber-600 ring-1 ring-amber-100'
+                                  : l.action === '重名追加'
+                                    ? 'rounded-full bg-cyan-50 px-1.5 py-0.5 text-cyan-600 ring-1 ring-cyan-100'
+                                    : 'rounded-full bg-teal-50 px-1.5 py-0.5 text-teal-600 ring-1 ring-teal-100'
+                              }
+                            >
+                              {l.action}
+                            </span>
+                            <span>{l.operator}</span>
+                          </div>
+                          <div className="mt-0.5 text-xs break-all text-gray-600">
+                            {l.oldValue ? <span className="text-gray-400 line-through">{l.oldValue} → </span> : null}
+                            <span className="font-medium text-teal-600">{l.newValue}</span>
+                          </div>
+                          {idx === 0 && <div className="mt-0.5 text-[10px] text-gray-300">最新</div>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center justify-end border-t border-gray-100 px-6 py-4">
+                <Button variant="outline" size="sm" onClick={() => setAttrFileId(null)}>
+                  关闭
+                </Button>
               </div>
             </>
           )}

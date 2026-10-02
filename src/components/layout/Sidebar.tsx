@@ -1,4 +1,4 @@
-import { Home, FolderUp, FolderSync, FolderSearch, FolderOpen, FolderArchive, Heart, LayoutDashboard, UsersRound, Building2, Braces } from 'lucide-react'
+import { Home, FolderUp, FolderSync, FolderSearch, FolderOpen, FolderArchive, Heart, LayoutDashboard, UsersRound, Building2, Braces, History } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useThemeBg } from '@/lib/theme'
 import type { Role } from '@/store'
@@ -15,6 +15,7 @@ export type PageKey =
   | 'accounts'
   | 'customers'
   | 'naming'
+  | 'audit'
 
 const allNavItems: { key: PageKey; label: string; icon: typeof Home; roles: Role[] }[] = [
   { key: 'home', label: 'Home', icon: Home, roles: ['pm', 'executor'] },
@@ -28,6 +29,7 @@ const allNavItems: { key: PageKey; label: string; icon: typeof Home; roles: Role
   { key: 'accounts', label: 'ACCOUNTS', icon: UsersRound, roles: ['admin'] },
   { key: 'customers', label: 'CUSTOMERS', icon: Building2, roles: ['admin'] },
   { key: 'naming', label: 'NAMING', icon: Braces, roles: ['admin'] },
+  { key: 'audit', label: 'AUDIT', icon: History, roles: ['admin'] },
 ]
 
 /** 各角色的默认首页 */

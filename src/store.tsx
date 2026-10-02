@@ -118,16 +118,22 @@ export interface DocType {
   category: string
 }
 
-/** 命名审计日志：创建命名与每次 displayFilename 修改各写一条（操作人/时间/旧值/新值） */
+/** 命名审计日志：创建命名与每次 displayFilename 修改各写一条（操作人/时间/旧值/新值）。
+    R39 二阶段A：补 projectNo/role/originalFilename 冗余字段（文件删除后审计仍可读）；
+    action 增加「重名追加」（上传时目标文件夹同名自动加序号，oldValue=期望名、newValue=实际名） */
 export interface NamingLog {
   id: string
   fileId: string
   operator: string
   /** YYYY-MM-DD HH:mm */
   time: string
-  action: '创建命名' | '修改文件名'
+  action: '创建命名' | '修改文件名' | '重名追加'
   oldValue: string
   newValue: string
+  /** 冗余展示字段（admin AUDIT 页筛选/列）：创建时写入，旧日志缺失时显示 — */
+  projectNo?: string
+  role?: Role
+  originalFilename?: string
 }
 
 /** 骨架库种子：系统配置，不受 DEMO_MODE 影响，始终加载（业务数据仍为空） */
@@ -813,6 +819,8 @@ export type Action =
   | { type: 'setFolderTemplate'; id: string; templateId: string | null }
   /** 追加命名审计日志（创建命名 / 修改 displayFilename） */
   | { type: 'addNamingLogs'; logs: NamingLog[] }
+  /** PM 修改文件展示名：originalFilename 永不动，displayFilename 变更同事务写一条「修改文件名」审计 */
+  | { type: 'renameDisplayFilename'; id: string; name: string; operator: string; role: Role }
 
 /** 当前时间格式化为 YYYY-MM-DD HH:mm（登录日志用） */
 export function nowStr() {
@@ -1147,6 +1155,29 @@ function reducer(state: State, action: Action): State {
     case 'addNamingLogs':
       /* 审计日志只增不改；上限 2000 条防无限膨胀 */
       return { ...state, namingLogs: [...action.logs, ...state.namingLogs].slice(0, 2000) }
+    case 'renameDisplayFilename': {
+      const target = state.files.find((f) => f.id === action.id)
+      if (!target || target.kind === 'folder') return state
+      const oldValue = target.displayFilename ?? target.name
+      if (oldValue === action.name) return state
+      const log: NamingLog = {
+        id: nextId('nl'),
+        fileId: target.id,
+        operator: action.operator,
+        time: nowStr(),
+        action: '修改文件名',
+        oldValue,
+        newValue: action.name,
+        projectNo: target.projectNo,
+        role: action.role,
+        originalFilename: target.originalFilename,
+      }
+      return {
+        ...state,
+        files: state.files.map((f) => (f.id === action.id ? { ...f, displayFilename: action.name } : f)),
+        namingLogs: [log, ...state.namingLogs].slice(0, 2000),
+      }
+    }
   }
 }
 

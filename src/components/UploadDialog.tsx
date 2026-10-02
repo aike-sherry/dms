@@ -34,13 +34,15 @@ interface PendingItem {
 }
 
 /** R39 命名向导行状态（模式A：目录绑定命名范式）：docType 存字典 code（{文件类型简称} 取值）；
-    override/dirty 为 CRA 手动覆盖预览名（PRD：允许手动修改，但必须确认，不静默重命名） */
+    override/dirty 为 CRA 手动覆盖预览名（PRD：允许手动修改，但必须确认，不静默重命名）；
+    touched=该行任一字段被手动微调过（二阶段A 批量「应用到全部」跳过 touched 行） */
 interface WizRow {
   docType: string
   versionNo: string
   docStatus: string
   override: string
   dirty: boolean
+  touched: boolean
 }
 
 /** 上传弹窗：卡片式选择「上传文件 / 上传文件夹」，支持拖拽上传（自动识别文件夹）；
@@ -87,6 +89,10 @@ export default function UploadDialog({
   const [selections, setSelections] = useState<Record<number, string>>({})
   /* R39 命名向导：每行命中「绑定骨架」目标文档时的向导字段（随 selections 同步初始化/清理） */
   const [wiz, setWiz] = useState<Record<number, WizRow>>({})
+  /* R39 二阶段A 批量：顶部「应用到全部」操作条取值（类型/版本/状态；空项不套用） */
+  const [bulk, setBulk] = useState({ docType: '', versionNo: '', docStatus: '' })
+  /* 批量时未绑定骨架行的可编辑名称（单行未绑定仍走旧模板只读预览） */
+  const [freeNames, setFreeNames] = useState<Record<number, string>>({})
   /* R34 PM 暂存确认流：页面拖拽/暂存态下选择的文件先进入 staged，底部「确认上传」一次性落库 */
   const [staged, setStaged] = useState<PendingItem[] | null>(null)
   const [stagedRoot, setStagedRoot] = useState<string | null>(null)
@@ -189,7 +195,7 @@ export default function UploadDialog({
     return filter && filter.length > 0 ? state.docTypes.filter((d) => filter.includes(d.id)) : state.docTypes
   }
   const patchWiz = (i: number, patch: Partial<WizRow>) =>
-    setWiz((s) => (s[i] ? { ...s, [i]: { ...s[i], ...patch } } : s))
+    setWiz((s) => (s[i] ? { ...s, [i]: { ...s[i], ...patch, touched: true } } : s))
   /* 向导行骨架实时渲染：试验编号/中心/日期自动带入；SAE序号、访视编号留空（renderSkeleton 整段剔除） */
   const wizRender = (tpl: NamingTemplate, w: WizRow) =>
     renderSkeleton(tpl.skeleton, {
@@ -205,6 +211,60 @@ export default function UploadDialog({
   /* 目标文件夹内现存展示名（重名检测用） */
   const folderChildNames = (folderId: string) =>
     state.files.filter((f) => f.parentId === folderId || f.targetFolderId === folderId).map(displayNameOf)
+
+  /* ---------- R39 二阶段A：批量「应用到全部」 ---------- */
+  /* 命中绑定骨架的向导行下标 */
+  const boundRowIdxs = pending.map((_, i) => i).filter((i) => !!boundRef(i) && !!wiz[i])
+  /* 操作条类型选项 = 各绑定行骨架限定类型的并集（按 code 去重） */
+  const bulkTypeOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    pending.forEach((_, i) => {
+      const b = boundRef(i)
+      if (!b) return
+      for (const d of docTypeChoicesFor(b.eff.template)) if (!map.has(d.code)) map.set(d.code, d.name)
+    })
+    return [...map.entries()].map(([code, name]) => ({ label: `${code}｜${name}`, value: code }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, selections, pmFolderMap, state.files, state.namingTemplates, state.docTypes])
+  /* 一键套用：仅覆盖未手动微调（touched=false）的向导行；docType 仅在行骨架限定类型包含时套用，
+     已微调行保持不动并在 toast 报数 */
+  const applyBulk = () => {
+    if (!bulk.docType && !bulk.versionNo && !bulk.docStatus) {
+      toast.warning('请先选择要套用的类型 / 版本 / 状态')
+      return
+    }
+    let applied = 0
+    let skippedTouched = 0
+    let skippedType = 0
+    setWiz((s) => {
+      const next = { ...s }
+      for (const i of boundRowIdxs) {
+        const row = next[i]
+        const b = boundRef(i)
+        if (!row || !b) continue
+        if (row.touched) {
+          skippedTouched++
+          continue
+        }
+        let dt = row.docType
+        if (bulk.docType) {
+          if (docTypeChoicesFor(b.eff.template).some((d) => d.code === bulk.docType)) dt = bulk.docType
+          else skippedType++
+        }
+        next[i] = { ...row, docType: dt, versionNo: bulk.versionNo || row.versionNo, docStatus: bulk.docStatus || row.docStatus }
+        applied++
+      }
+      return next
+    })
+    toast.success(`已套用到 ${applied} 行`, {
+        description: [
+          skippedTouched > 0 ? `${skippedTouched} 行已手动微调，保持不动` : '',
+          skippedType > 0 ? `${skippedType} 行的骨架限定类型不含所选类型，类型未套用` : '',
+        ]
+          .filter(Boolean)
+          .join('；') || undefined,
+      })
+  }
   /* selections 变化 → 命中绑定的行初始化向导（类型预选沿用 analyzeName 识别），未命中行清理向导 */
   useEffect(() => {
     if (!withNamingConfirm) return
@@ -229,7 +289,7 @@ export default function UploadDialog({
         const hit = a.matched
           ? choices.find((d) => d.code.includes(a.docType) || a.docType.includes(d.code) || d.name.includes(a.docType))
           : undefined
-        next[i] = { docType: hit?.code ?? '', versionNo: '1.0', docStatus: '草稿', override: '', dirty: false }
+        next[i] = { docType: hit?.code ?? '', versionNo: '1.0', docStatus: '草稿', override: '', dirty: false, touched: false }
       })
       return changed ? next : prev
     })
@@ -300,6 +360,8 @@ export default function UploadDialog({
     setDirRoot(null)
     setSelections({})
     setWiz({})
+    setBulk({ docType: '', versionNo: '', docStatus: '' })
+    setFreeNames({})
     setStaged(null)
     setStagedRoot(null)
   }
@@ -405,9 +467,13 @@ export default function UploadDialog({
           fileId: id,
           operator: uploader,
           time: nowStr(),
-          action: '创建命名',
-          oldValue: '',
+          /* 重名被追加序号时单独记「重名追加」动作：oldValue=期望名、newValue=实际名 */
+          action: finalName !== want ? '重名追加' : '创建命名',
+          oldValue: finalName !== want ? want : '',
           newValue: finalName,
+          projectNo,
+          role: 'executor',
+          originalFilename: p.file.name,
         })
         return {
           id,
@@ -425,10 +491,13 @@ export default function UploadDialog({
           targetFolderId: b.folder.id,
         }
       }
-      finalNames.push(previews[i]?.name ?? p.relName)
+      /* 未绑定行：批量时 CRA 可手改名称（freeNames 优先），否则沿用旧模板预览 */
+      const freeName = freeNames[i]?.trim()
+      const unboundName = freeName || (previews[i]?.name ?? p.relName)
+      finalNames.push(unboundName)
       return {
         id,
-        name: previews[i]?.name ?? p.relName,
+        name: unboundName,
         kind: 'pdf' as const,
         ...baseFields(),
         size: fmtSize(p.file.size),
@@ -859,6 +928,34 @@ export default function UploadDialog({
               {pmFolders.length === 0 && '（该中心暂未建文件夹，使用标准文档类型）'}
               ；选择后按命名规则自动生成规范文件名，版本号沿用历史版本自动递增。
             </p>
+            {/* R39 二阶段A 批量操作条：多文件且有绑定骨架行时，一键套用类型/版本/状态到未手动微调的行 */}
+            {pending.length >= 2 && boundRowIdxs.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl bg-gray-50 px-3 py-2.5 ring-1 ring-gray-100">
+                <span className="text-xs font-medium whitespace-nowrap text-gray-500">应用到全部：</span>
+                <ToolbarSelect
+                  value={bulk.docType}
+                  onChange={(v) => setBulk((b) => ({ ...b, docType: v }))}
+                  options={[{ label: '类型（不套用）', value: '' }, ...bulkTypeOptions]}
+                  className="w-44 [&>select]:w-full"
+                />
+                <ToolbarSelect
+                  value={bulk.versionNo}
+                  onChange={(v) => setBulk((b) => ({ ...b, versionNo: v }))}
+                  options={[{ label: '版本（不套用）', value: '' }, ...VERSION_OPTIONS.map((v) => ({ label: `V${v}`, value: v }))]}
+                  className="w-28 [&>select]:w-full"
+                />
+                <ToolbarSelect
+                  value={bulk.docStatus}
+                  onChange={(v) => setBulk((b) => ({ ...b, docStatus: v }))}
+                  options={[{ label: '状态（不套用）', value: '' }, ...DOC_STATUS_OPTIONS.map((s) => ({ label: s, value: s }))]}
+                  className="w-28 [&>select]:w-full"
+                />
+                <Button size="sm" className="h-7 bg-teal-500 px-3 text-xs text-white hover:bg-teal-600" onClick={applyBulk}>
+                  套用
+                </Button>
+                <span className="text-[11px] text-gray-400">仅套用绑定骨架的行；已手动微调的行保持不动</span>
+              </div>
+            )}
             <div className="max-h-80 overflow-auto rounded-xl border border-gray-100">
               {pending.map((p, i) => {
                 const b = boundRef(i)
@@ -886,6 +983,14 @@ export default function UploadDialog({
                           骨架·{b.eff.template.name}
                           {b.eff.inherited ? '（继承）' : ''}
                         </span>
+                      ) : pending.length >= 2 ? (
+                        /* 批量 + 未绑定骨架：该行名称可手动编辑（默认带入旧模板预览值） */
+                        <input
+                          value={freeNames[i] ?? previews[i]?.name ?? ''}
+                          onChange={(e) => setFreeNames((s) => ({ ...s, [i]: e.target.value }))}
+                          placeholder="选择目标文档后生成预览，可手动修改"
+                          className="h-8 min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 text-xs text-gray-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+                        />
                       ) : (
                         <div className={cn('min-w-0 flex-1 text-xs break-all', previews[i] ? 'font-medium text-teal-600' : 'text-gray-300')}>
                           {previews[i]?.name ?? '选择目标文档后预览新文件名'}
