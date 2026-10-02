@@ -14,7 +14,7 @@ import { projectOptions } from '@/data/mock'
 import { useStore, PM_USER, EX_USER, ADMIN_USER } from '@/store'
 import { useThemeBg, BG_PRESETS, NAV_PRESETS, DEFAULT_BG, DEFAULT_NAV_BG, navBaseColor } from '@/lib/theme'
 import { cn } from '@/lib/utils'
-import logoImg from '@/assets/clini-x-trials-logo.png'
+import BrandMark from '@/components/BrandMark'
 
 function Clock() {
   const [now, setNow] = useState(() => new Date())
@@ -263,9 +263,16 @@ export default function Header() {
     /* 顶栏通栏：底边分隔线横贯全宽（border-b + shadow-sm + z-10 强化分界，与下方导航/内容严格分隔）；
        左侧只保留 LOGO + 系统名称，页标题由 Layout 内容区顶部渲染 */
     <header className="relative z-10 flex h-16 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-5 shadow-sm">
+      {/* R41：顶栏左侧 LOGO 区换登录页同款描边渐变字标（小尺寸版）+ 竖线 + 中文名/英文大写渐变副标题双行 */}
       <div className="flex items-center gap-3">
-        <img src={logoImg} alt="CLINI X TRIALS" className="h-6 w-auto" />
-        <span className="text-[15px] font-semibold tracking-wide text-gray-800">研究文件管理系统</span>
+        <BrandMark className="h-7 w-auto" />
+        <div aria-hidden className="h-6 w-px bg-gray-200" />
+        <div className="leading-tight">
+          <div className="text-sm font-bold tracking-wide text-gray-800">研究文件管理系统</div>
+          <div className="bg-gradient-to-r from-teal-500 to-violet-500 bg-clip-text text-[8px] font-semibold tracking-[0.16em] text-transparent uppercase">
+            Document Management System
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-5">

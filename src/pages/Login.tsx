@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStore, type Role } from '@/store'
-import logoImg from '@/assets/clini-x-trials-logo.png'
+import BrandMark from '@/components/BrandMark'
 
 /* ---------------- 左侧品牌区：三条系统特点 ---------------- */
 
@@ -38,25 +38,6 @@ const features = [
     iconCls: 'from-sky-400 to-blue-600 shadow-sky-500/25',
   },
 ]
-
-/* ---------------- R40 LOGO 字标 + 微笑弧线（参照「科研数据管理平台」登录页：teal→紫渐变弧） ---------------- */
-
-function LogoWithArc({ imgCls, arcId }: { imgCls: string; arcId: string }) {
-  return (
-    <span className="inline-flex flex-col items-center">
-      <img src={logoImg} alt="CLINI X TRIALS" className={imgCls} />
-      <svg viewBox="0 0 120 12" aria-hidden className="mt-0.5 h-2 w-[86%]" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id={arcId} x1="0" y1="0" x2="120" y2="0" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#2dd4bf" />
-            <stop offset="1" stopColor="#a78bfa" />
-          </linearGradient>
-        </defs>
-        <path d="M 3 2.5 Q 60 14 117 2.5" stroke={`url(#${arcId})`} strokeWidth="2.6" fill="none" strokeLinecap="round" />
-      </svg>
-    </span>
-  )
-}
 
 /* ---------------- 输入框（R40：胶囊形 rounded-full、图标内嵌、去独立 label 改占位符文案） ---------------- */
 
@@ -86,13 +67,13 @@ function Field({
 }
 
 const inputCls =
-  'h-[52px] w-full bg-transparent text-[15px] text-gray-800 outline-none placeholder:text-gray-400'
+  'h-11 w-full bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400'
 
 /* ---------------- 左下品牌主视觉：TMF 文档流转示意（纯 CSS/SVG） ---------------- */
 
 function DocFlowVisual() {
   return (
-    <div aria-hidden className="relative mt-12 hidden h-[150px] max-w-[520px] select-none lg:block 2xl:mt-14 2xl:h-[185px] 2xl:max-w-[600px]">
+    <div aria-hidden className="relative mt-8 hidden h-[120px] max-w-[480px] select-none lg:block 2xl:mt-10 2xl:h-[145px] 2xl:max-w-[540px]">
       {/* 柔和底光 */}
       <div className="absolute inset-x-8 top-4 bottom-0 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(45,212,191,0.12),transparent_70%)] blur-xl" />
 
@@ -325,67 +306,68 @@ export default function Login() {
         GCP
       </div>
 
-      {/* 顶部一行：左侧 LOGO（R40 字标+微笑弧线）+ 竖向修饰线 + 系统名/英文渐变大写副标题（右上角留空） */}
-      <header className="relative z-10 flex items-center px-5 py-4 sm:px-10">
-        <LogoWithArc imgCls="h-9 w-auto sm:h-14" arcId="logoArcHeader" />
-        <div aria-hidden className="mx-3 h-8 w-px bg-gray-300/90 sm:mx-4 sm:h-11" />
+      {/* 顶部一行：左侧品牌字标（R41 描边空心渐变字 + 角框 + 微笑弧线）+ 竖向修饰线 + 系统名/英文渐变大写副标题（右上角留空） */}
+      <header className="relative z-10 flex items-center px-5 py-3 sm:px-10 sm:py-3.5">
+        <BrandMark className="h-9 w-auto sm:h-11" />
+        <div aria-hidden className="mx-3 h-7 w-px bg-gray-300/90 sm:mx-4 sm:h-9" />
         <div>
-          <div className="text-lg font-extrabold tracking-wide text-[#182838] sm:text-2xl">
+          <div className="text-base font-bold tracking-wide text-[#182838] sm:text-lg">
             研究文件管理系统
           </div>
-          <div className="mt-0.5 bg-gradient-to-r from-teal-500 to-violet-500 bg-clip-text text-[10px] font-semibold tracking-[0.18em] text-transparent uppercase sm:text-xs">
+          <div className="mt-0.5 bg-gradient-to-r from-teal-500 to-violet-500 bg-clip-text text-[9px] font-semibold tracking-[0.18em] text-transparent uppercase sm:text-[10px]">
             Document Management System
           </div>
         </div>
       </header>
 
-      {/* 主体：左右分栏（窄屏堆叠，品牌区精简） */}
-      <main className="relative z-10 flex flex-1 flex-col items-center gap-10 px-5 pb-6 sm:px-10 lg:flex-row lg:items-center lg:gap-6">
+      {/* 主体：左右分栏（窄屏堆叠，品牌区精简）；R41 整页一屏零滚动——各区间距收紧 */}
+      <main className="relative z-10 flex flex-1 flex-col items-center gap-8 px-5 pb-2 sm:px-10 lg:flex-row lg:items-center lg:gap-6">
         {/* 左侧品牌区（约 55% 宽） */}
         <section className="w-full pt-2 lg:w-[55%] lg:pt-0 lg:pl-8 xl:pl-16">
           <div className="login-fade-up">
-            <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-1.5 text-sm font-medium text-teal-700 shadow-[0_10px_28px_-10px_rgba(15,118,110,0.3)] ring-1 ring-gray-100">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+            <span className="inline-flex items-center gap-2 rounded-full bg-white px-3.5 py-1.5 text-xs font-medium text-teal-700 shadow-[0_10px_28px_-10px_rgba(15,118,110,0.3)] ring-1 ring-gray-100">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
               智能一体化临床研究文件管理平台
             </span>
           </div>
 
-          <div className="login-fade-up mt-5" style={{ animationDelay: '0.08s' }}>
-            <h1 className="text-[2.5rem] leading-tight font-extrabold tracking-wide sm:text-5xl 2xl:text-6xl">
+          <div className="login-fade-up mt-4" style={{ animationDelay: '0.08s' }}>
+            {/* R41 主标题降档：克制的中等字号（2xl→3xl、font-bold），两行间距收敛 */}
+            <h1 className="text-2xl font-bold tracking-wide sm:text-3xl">
               {/* 两行拉开行距；第一行深青墨绿（参考图取色 #134e4a 一类深 teal） */}
-              <span className="block text-[#134e4a]">以智能科技 · 赋能科研创新</span>
+              <span className="block leading-snug text-[#134e4a]">以智能科技 · 赋能科研创新</span>
               {/* 第二行青→蓝绿渐变（原图取色 #28d0c8 → #30c0f0） */}
-              <span className="mt-3 block bg-gradient-to-r from-[#28d0c8] to-[#30c0f0] bg-clip-text text-transparent sm:mt-4">
+              <span className="mt-2 block bg-gradient-to-r from-[#28d0c8] to-[#30c0f0] bg-clip-text leading-snug text-transparent sm:mt-2.5">
                 让研究轻松前行
               </span>
             </h1>
-            {/* 科技感修饰光带：渐变细直条 + 荧光辉光 + 左端渐变方块起笔（宽度略短于文字） */}
-            <div aria-hidden className="mt-4 flex items-center gap-2.5">
-              <span className="h-2 w-2 rounded-[3px] bg-gradient-to-br from-[#28d0c8] to-[#30c0f0] shadow-[0_0_8px_rgba(48,192,240,0.7)]" />
-              <span className="h-[3px] w-[300px] rounded-full bg-gradient-to-r from-[#28d0c8] to-[#30c0f0] shadow-[0_0_10px_rgba(44,204,216,0.6),0_0_22px_rgba(48,192,240,0.3)] sm:w-[340px]" />
+            {/* 科技感修饰光带：渐变细直条 + 荧光辉光 + 左端渐变方块起笔（宽度匹配新字号） */}
+            <div aria-hidden className="mt-3 flex items-center gap-2.5">
+              <span className="h-1.5 w-1.5 rounded-[3px] bg-gradient-to-br from-[#28d0c8] to-[#30c0f0] shadow-[0_0_8px_rgba(48,192,240,0.7)]" />
+              <span className="h-[3px] w-[220px] rounded-full bg-gradient-to-r from-[#28d0c8] to-[#30c0f0] shadow-[0_0_10px_rgba(44,204,216,0.6),0_0_22px_rgba(48,192,240,0.3)] sm:w-[260px]" />
             </div>
           </div>
 
-          {/* 三条系统特点（R40：纯文字行 → 三张白色圆角卡片：左侧彩色圆角方块图标 + 标题加粗 + 描述小字；
+          {/* 三条系统特点（R40 白卡版；R41 回调更紧凑：图标方块缩小、标题 text-sm、描述 text-xs、卡 padding 缩小；
               窄屏隐藏，精简品牌区） */}
-          <ul className="mt-10 hidden max-w-lg space-y-4 lg:block 2xl:mt-12">
+          <ul className="mt-8 hidden max-w-md space-y-3 lg:block 2xl:mt-9">
             {features.map(({ icon: Icon, title, desc, iconCls }, i) => (
               <li
                 key={title}
-                className="login-fade-up flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_16px_40px_-16px_rgba(15,118,110,0.18)] ring-1 ring-gray-100/90 2xl:p-5"
+                className="login-fade-up flex items-center gap-3.5 rounded-2xl bg-white p-3.5 shadow-[0_14px_36px_-16px_rgba(15,118,110,0.18)] ring-1 ring-gray-100/90"
                 style={{ animationDelay: `${0.24 + i * 0.1}s` }}
               >
                 <div
                   className={cn(
-                    'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-lg',
+                    'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-md',
                     iconCls,
                   )}
                 >
-                  <Icon className="h-5 w-5" strokeWidth={1.9} />
+                  <Icon className="h-4.5 w-4.5" strokeWidth={1.9} />
                 </div>
                 <div>
-                  <div className="text-base font-bold text-gray-800">{title}</div>
-                  <div className="mt-0.5 text-[13px] leading-relaxed text-gray-500">{desc}</div>
+                  <div className="text-sm font-bold text-gray-800">{title}</div>
+                  <div className="mt-0.5 text-xs leading-relaxed text-gray-500">{desc}</div>
                 </div>
               </li>
             ))}
@@ -395,10 +377,11 @@ export default function Login() {
           <DocFlowVisual />
         </section>
 
-        {/* 右侧登录卡片（R40：约 440px 宽，更白更实、大圆角柔和投影、内容居中） */}
+        {/* 右侧登录卡片（R40 确立：白实底/大圆角/居中/胶囊输入框/紫→teal 渐变按钮；
+            R41 回调：宽度 440→400、padding/间距/字号整体收小，配合整页零滚动） */}
         <section className="flex w-full justify-center lg:w-[45%] lg:justify-end lg:pr-8 xl:pr-16">
           <div
-            className="login-fade-up relative w-full max-w-[440px] rounded-[2rem] bg-white p-8 shadow-[0_32px_80px_-20px_rgba(15,118,110,0.3)] ring-1 ring-gray-100 sm:p-10"
+            className="login-fade-up relative w-full max-w-[400px] rounded-[1.75rem] bg-white p-7 shadow-[0_28px_72px_-20px_rgba(15,118,110,0.28)] ring-1 ring-gray-100 sm:p-8"
             style={{ animationDelay: '0.12s' }}
           >
             {/* 顶部紫→teal 渐变细边（参照图卡片顶边） */}
@@ -407,18 +390,18 @@ export default function Login() {
               className="absolute inset-x-8 top-0 h-[3px] rounded-full bg-gradient-to-r from-violet-400 via-sky-400 to-teal-400"
             />
             {/* eTMF 徽标保留（右上） */}
-            <span className="absolute top-6 right-7 rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-semibold tracking-wider text-teal-600 ring-1 ring-teal-100">
+            <span className="absolute top-5 right-6 rounded-full bg-teal-50 px-2 py-0.5 text-[9px] font-semibold tracking-wider text-teal-600 ring-1 ring-teal-100">
               eTMF
             </span>
-            {/* 卡片头部：居中 logo 字标 + 弧线小版 */}
+            {/* 卡片头部：居中品牌字标（描边渐变 + 角框 + 弧线） */}
             <div className="flex justify-center">
-              <LogoWithArc imgCls="h-8 w-auto" arcId="logoArcCard" />
+              <BrandMark className="h-8 w-auto" />
             </div>
 
-            <h2 className="mt-5 text-center text-[1.75rem] font-extrabold tracking-wide text-gray-900">欢迎登录</h2>
-            <p className="mt-1.5 text-center text-[13px] tracking-wide text-gray-400">Document Management System</p>
+            <h2 className="mt-4 text-center text-xl font-bold tracking-wide text-gray-900">欢迎登录</h2>
+            <p className="mt-1 text-center text-xs tracking-wide text-gray-400">Document Management System</p>
 
-            <form onSubmit={submit} noValidate className="mt-8 space-y-5">
+            <form onSubmit={submit} noValidate className="mt-6 space-y-4">
               <Field icon={Mail} error={errors.account}>
                 <input
                   className={inputCls}
@@ -451,7 +434,7 @@ export default function Login() {
                 type="submit"
                 disabled={loading}
                 className={cn(
-                  'group flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-base font-bold text-white shadow-[0_16px_36px_-12px_rgba(139,92,246,0.45)] transition-all',
+                  'group flex h-11 w-full items-center justify-center gap-2 rounded-full text-sm font-bold text-white shadow-[0_14px_32px_-12px_rgba(139,92,246,0.45)] transition-all',
                   loading
                     ? 'cursor-wait bg-teal-400'
                     : 'bg-gradient-to-r from-[#a78bfa] via-[#60a5fa] to-[#2dd4bf] hover:shadow-[0_20px_44px_-12px_rgba(45,212,191,0.5)] hover:brightness-105 active:scale-[0.99]',
@@ -472,7 +455,7 @@ export default function Login() {
             </form>
 
             {/* 演示账号提示（保留，样式收敛） */}
-            <div className="mt-7 border-t border-gray-100 pt-4 text-center text-[11px] leading-relaxed text-gray-400">
+            <div className="mt-5 border-t border-gray-100 pt-3.5 text-center text-[11px] leading-relaxed text-gray-400">
               <div className="mb-1">演示账号（密码均为 123456）</div>
               <div className="flex flex-wrap justify-center gap-x-3 gap-y-1">
                 <span>
@@ -492,7 +475,7 @@ export default function Login() {
       </main>
 
       {/* 底部 */}
-      <footer className="relative z-10 pb-4 text-center text-[11px] tracking-wide text-gray-400">
+      <footer className="relative z-10 pb-3 text-center text-[11px] tracking-wide text-gray-400">
         © <span className="font-num">2026</span> 乂氪医疗科技 · Clin X Trials 研究文件管理系统 v1.0
       </footer>
     </div>
