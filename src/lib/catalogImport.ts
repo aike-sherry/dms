@@ -100,6 +100,19 @@ export function parseCatalogWorkbook(buf: ArrayBuffer | string): ParsedCatalog {
   return { tree, counts, rows }
 }
 
+/** 统计目录树各层级节点数：[一级, 二级, 三级]（三级以外深度不计；模板库列表/计数展示用） */
+export function countCatalogTree(tree: CatalogNode[]): [number, number, number] {
+  const counts: [number, number, number] = [0, 0, 0]
+  const walk = (nodes: CatalogNode[], depth: number) => {
+    for (const n of nodes) {
+      if (depth < 3) counts[depth]++
+      walk(n.children, depth + 1)
+    }
+  }
+  walk(tree, 0)
+  return counts
+}
+
 /** 生成并下载标准导入模板（一级目录/二级目录/三级目录 + 示例行） */
 export function downloadCatalogTemplate() {
   const aoa = [

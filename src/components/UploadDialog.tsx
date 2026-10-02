@@ -35,7 +35,8 @@ interface PendingItem {
 
 /** R39 命名向导行状态（模式A：目录绑定命名范式）：docType 存字典 code（{文件类型简称} 取值）；
     override/dirty 为 CRA 手动覆盖预览名（PRD：允许手动修改，但必须确认，不静默重命名）；
-    touched=该行任一字段被手动微调过（二阶段A 批量「应用到全部」跳过 touched 行） */
+    touched=该行任一字段被手动微调过（二阶段A 批量「应用到全部」跳过 touched 行）；
+    aiFilled=AI 语义预填命中文档类型（二阶段B：仅预填下拉不落名，手动改动即清除徽标） */
 interface WizRow {
   docType: string
   versionNo: string
@@ -43,6 +44,7 @@ interface WizRow {
   override: string
   dirty: boolean
   touched: boolean
+  aiFilled: boolean
 }
 
 /** 上传弹窗：卡片式选择「上传文件 / 上传文件夹」，支持拖拽上传（自动识别文件夹）；
@@ -194,8 +196,9 @@ export default function UploadDialog({
     const filter = tpl.docTypeFilter
     return filter && filter.length > 0 ? state.docTypes.filter((d) => filter.includes(d.id)) : state.docTypes
   }
+  /* 手动微调：置 touched（批量套用跳过）并清除 AI 预填徽标（值已非 AI 预选） */
   const patchWiz = (i: number, patch: Partial<WizRow>) =>
-    setWiz((s) => (s[i] ? { ...s, [i]: { ...s[i], ...patch, touched: true } } : s))
+    setWiz((s) => (s[i] ? { ...s, [i]: { ...s[i], ...patch, touched: true, aiFilled: false } } : s))
   /* 向导行骨架实时渲染：试验编号/中心/日期自动带入；SAE序号、访视编号留空（renderSkeleton 整段剔除） */
   const wizRender = (tpl: NamingTemplate, w: WizRow) =>
     renderSkeleton(tpl.skeleton, {
@@ -251,7 +254,7 @@ export default function UploadDialog({
           if (docTypeChoicesFor(b.eff.template).some((d) => d.code === bulk.docType)) dt = bulk.docType
           else skippedType++
         }
-        next[i] = { ...row, docType: dt, versionNo: bulk.versionNo || row.versionNo, docStatus: bulk.docStatus || row.docStatus }
+        next[i] = { ...row, docType: dt, versionNo: bulk.versionNo || row.versionNo, docStatus: bulk.docStatus || row.docStatus, aiFilled: dt === row.docType ? row.aiFilled : false }
         applied++
       }
       return next
@@ -286,15 +289,18 @@ export default function UploadDialog({
         changed = true
         const a = analyzeName(p.relName)
         const choices = docTypeChoicesFor(eff.template)
-        const hit = a.matched
-          ? choices.find((d) => d.code.includes(a.docType) || a.docType.includes(d.code) || d.name.includes(a.docType))
-          : undefined
-        next[i] = { docType: hit?.code ?? '', versionNo: '1.0', docStatus: '草稿', override: '', dirty: false, touched: false }
+        /* R39 二阶段B：AI 语义预填开关（admin NAMING 页维护，默认关）——开启时才按原文件名关键词
+           从骨架限定类型中预选（仅预填下拉并显示徽标，绝不落地文件名）；关闭则不预选 */
+        const hit =
+          state.aiPrefill && a.matched
+            ? choices.find((d) => d.code.includes(a.docType) || a.docType.includes(d.code) || d.name.includes(a.docType))
+            : undefined
+        next[i] = { docType: hit?.code ?? '', versionNo: '1.0', docStatus: '草稿', override: '', dirty: false, touched: false, aiFilled: !!hit }
       })
       return changed ? next : prev
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [withNamingConfirm, pending, selections, pmFolderMap, state.namingTemplates, state.docTypes])
+  }, [withNamingConfirm, pending, selections, pmFolderMap, state.namingTemplates, state.docTypes, state.aiPrefill])
 
   /* 项目或中心变更 → 目标文档选项刷新：已选但不在新选项中的清空重选 */
   useEffect(() => {
@@ -1010,6 +1016,15 @@ export default function UploadDialog({
                             ]}
                             className="w-44 [&>select]:w-full"
                           />
+                          {/* R39 二阶段B：AI 语义预填命中徽标（仅预填下拉；手动改动后徽标消失） */}
+                          {w.aiFilled && w.docType && (
+                            <span
+                              title="AI 按原文件名关键词预选的类型，可改选；确认前不会落地文件名"
+                              className="cursor-help rounded-full bg-violet-50 px-2 py-0.5 text-[10px] whitespace-nowrap text-violet-600 ring-1 ring-violet-100"
+                            >
+                              AI 预填
+                            </span>
+                          )}
                           <ToolbarSelect
                             value={w.versionNo}
                             onChange={(v) => patchWiz(i, { versionNo: v })}

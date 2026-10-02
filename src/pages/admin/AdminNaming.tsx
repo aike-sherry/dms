@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
-import { Braces, Plus, Pencil, Trash2 } from 'lucide-react'
+import { Braces, Plus, Pencil, Trash2, FileSpreadsheet, FolderTree, Eye } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { ModalHeader } from '@/components/CatalogDialog'
+import { Switch } from '@/components/ui/switch'
+import { ModalHeader, TreePreview } from '@/components/CatalogDialog'
 import { PageCard, DataTable, Th, Td, Tr, TealLink } from '@/components/common'
 import { cn } from '@/lib/utils'
 import {
@@ -12,7 +13,8 @@ import {
   renderSkeleton,
   validateSkeleton,
 } from '@/lib/namingSkeleton'
-import { useStore, nextId, type DocType, type NamingTemplate } from '@/store'
+import { parseCatalogWorkbook, countCatalogTree, type ParsedCatalog } from '@/lib/catalogImport'
+import { useStore, nextId, todayStr, type DocType, type NamingTemplate, type TreeTemplate } from '@/store'
 
 /* ---------------- 占位符高亮渲染：骨架字符串中的 {占位符} 显示为 teal 芯片 ---------------- */
 export function SkeletonText({ value, className }: { value: string; className?: string }) {
@@ -209,6 +211,121 @@ function TemplateDialog({
   )
 }
 
+/* ---------------- R39 二阶段B：标准目录树模板新增弹窗（上传同款目录 Excel 解析成模板） ---------------- */
+function TreeTemplateDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+}: {
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  onSubmit: (f: { name: string; remark: string; parsed: ParsedCatalog }) => void
+}) {
+  const [name, setName] = useState('')
+  const [remark, setRemark] = useState('')
+  const [picked, setPicked] = useState<{ fileName: string; parsed: ParsedCatalog | null; error: string | null } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  /* 弹窗每次打开重置表单 */
+  const [lastOpen, setLastOpen] = useState(false)
+  if (open !== lastOpen) {
+    setLastOpen(open)
+    if (open) {
+      setName('')
+      setRemark('')
+      setPicked(null)
+    }
+  }
+
+  const onPickedFile = async (file: File | undefined) => {
+    if (!file) return
+    try {
+      const parsed = /\.csv$/i.test(file.name)
+        ? parseCatalogWorkbook(await file.text())
+        : parseCatalogWorkbook(await file.arrayBuffer())
+      setPicked({ fileName: file.name, parsed, error: null })
+      /* 名称为空时自动带入文件名去扩展名 */
+      if (!name.trim()) setName(file.name.replace(/\.[^.]+$/, ''))
+    } catch (err) {
+      setPicked({ fileName: file.name, parsed: null, error: err instanceof Error ? err.message : '无法解析该文件' })
+    }
+  }
+
+  const submit = () => {
+    if (!name.trim()) {
+      toast.warning('请填写模板名称')
+      return
+    }
+    if (!picked?.parsed) {
+      toast.warning('请上传目录 Excel', { description: picked?.error ? `解析失败：${picked.error}` : '模板结构来自目录 Excel 解析结果' })
+      return
+    }
+    onSubmit({ name: name.trim(), remark: remark.trim(), parsed: picked.parsed })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent showCloseButton={false} className="gap-0 overflow-hidden rounded-2xl border-0 p-0 sm:max-w-lg">
+        <DialogTitle className="sr-only">新增目录树模板</DialogTitle>
+        <ModalHeader title="新增目录树模板" onClose={() => onOpenChange(false)} />
+        <div className="space-y-4 p-6">
+          <Field label="模板名称 *">
+            <input className={inputCls} placeholder="如：RJQM 标准文件管理体系" value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="说明">
+            <input className={inputCls} placeholder="适用场景说明（可选）" value={remark} onChange={(e) => setRemark(e.target.value)} />
+          </Field>
+          <div>
+            <span className="mb-1.5 block text-xs font-medium text-gray-500">目录结构 *（上传目录 Excel，解析为模板树）</span>
+            {picked ? (
+              <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2.5 ring-1 ring-gray-100">
+                <FileSpreadsheet className="h-4 w-4 shrink-0 text-teal-500" />
+                <span className="min-w-0 truncate text-xs text-gray-600">{picked.fileName}</span>
+                {picked.parsed && (
+                  <span className="shrink-0 text-[11px] text-teal-600">
+                    一级 {picked.parsed.counts[0]} · 二级 {picked.parsed.counts[1]}
+                    {picked.parsed.counts[2] > 0 && ` · 三级 ${picked.parsed.counts[2]}`}
+                  </span>
+                )}
+                {picked.error && <span className="shrink-0 text-[11px] text-red-500">解析失败：{picked.error}</span>}
+                <button type="button" className="ml-auto shrink-0 text-[11px] text-teal-500 hover:underline" onClick={() => fileRef.current?.click()}>
+                  重传
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs text-teal-600 transition-colors hover:border-teal-400 hover:bg-teal-50/50"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" /> 上传目录 Excel
+              </button>
+            )}
+            <p className="mt-1.5 text-[11px] text-gray-400">格式同 PM 建目录的导入文件（一级目录 / 二级目录 / 三级目录 或 序号 / 文件类别 / 名称）</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
+          <Button size="sm" className="bg-teal-500 text-white hover:bg-teal-600" onClick={submit}>
+            保存
+          </Button>
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          className="hidden"
+          onChange={(e) => {
+            void onPickedFile(e.target.files?.[0])
+            e.target.value = ''
+          }}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 /* ---------------- admin 命名骨架库 + 文档类型字典 ---------------- */
 export default function AdminNaming() {
   const { state, dispatch } = useStore()
@@ -218,6 +335,9 @@ export default function AdminNaming() {
   const [dtOpen, setDtOpen] = useState(false)
   const [dtEdit, setDtEdit] = useState<DocType | null>(null)
   const [dtForm, setDtForm] = useState({ code: '', name: '', category: '' })
+  /* R39 二阶段B：目录树模板库 */
+  const [ttOpen, setTtOpen] = useState(false)
+  const [ttPreview, setTtPreview] = useState<TreeTemplate | null>(null)
 
   const tplById = useMemo(() => new Map(state.docTypes.map((d) => [d.id, d])), [state.docTypes])
 
@@ -281,8 +401,51 @@ export default function AdminNaming() {
 
   const emptyTpl: TplForm = { name: '', skeleton: '', remark: '', docTypeFilter: [] }
 
+  /* ===== R39 二阶段B：模板库操作 ===== */
+  const submitTreeTemplate = (f: { name: string; remark: string; parsed: ParsedCatalog }) => {
+    const t: TreeTemplate = {
+      id: nextId('tt'),
+      name: f.name,
+      remark: f.remark || undefined,
+      tree: f.parsed.tree,
+      createdAt: todayStr(),
+    }
+    dispatch({ type: 'addTreeTemplate', template: t })
+    setTtOpen(false)
+    toast.success(`已新增目录树模板「${t.name}」`, { description: 'PM 创建目录时可引用该模板作基线' })
+  }
+  const removeTreeTemplate = (t: TreeTemplate) => {
+    if (!window.confirm(`确定删除模板「${t.name}」吗？已引用该模板创建的目录不受影响（引用时已拷贝树结构）。`)) return
+    dispatch({ type: 'removeTreeTemplate', id: t.id })
+    toast.success(`已删除模板「${t.name}」`)
+  }
+
   return (
     <div className="space-y-5">
+      {/* ===== R39 二阶段B：AI 语义预填全局开关 ===== */}
+      <PageCard title="AI 语义预填">
+        <div className="flex items-center gap-4 px-1 py-1">
+          <Switch
+            checked={state.aiPrefill}
+            onCheckedChange={(on) => {
+              dispatch({ type: 'setAiPrefill', on })
+              toast.success(on ? 'AI 语义预填已开启' : 'AI 语义预填已关闭', {
+                description: on
+                  ? 'CRA 上传向导将按原文件名关键词预选文档类型（仅预填下拉，绝不落地文件名）'
+                  : 'CRA 上传向导不再自动预选文档类型',
+              })
+            }}
+          />
+          <div className="text-xs leading-5 text-gray-500">
+            <span className={cn('font-medium', state.aiPrefill ? 'text-teal-600' : 'text-gray-400')}>
+              {state.aiPrefill ? '已开启' : '已关闭（默认）'}
+            </span>
+            <span className="mx-1.5 text-gray-300">|</span>
+            开启后 CRA 上传向导根据原文件名关键词从文档类型字典预选类型并显示「AI 预填」徽标；仅预填下拉，绝不直接落地文件名，CRA 仍可改、仍需确认
+          </div>
+        </div>
+      </PageCard>
+
       {/* ===== 命名范式骨架库 ===== */}
       <PageCard
         title="命名范式骨架库"
@@ -411,9 +574,78 @@ export default function AdminNaming() {
         </DataTable>
       </PageCard>
 
+      {/* ===== R39 二阶段B：标准目录树模板库 ===== */}
+      <PageCard
+        title="标准目录树模板库"
+        extra={
+          <Button size="sm" className="gap-1.5 bg-teal-500 text-white hover:bg-teal-600" onClick={() => setTtOpen(true)}>
+            <Plus className="h-4 w-4" /> 新增模板
+          </Button>
+        }
+      >
+        <DataTable>
+          <thead>
+            <tr>
+              <Th className="w-56">模板名称</Th>
+              <Th className="w-44">目录结构</Th>
+              <Th>说明</Th>
+              <Th className="w-28">创建时间</Th>
+              <Th sortable={false} className="w-32">操作</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {state.treeTemplates.map((t) => {
+              const counts = countCatalogTree(t.tree)
+              return (
+                <Tr key={t.id}>
+                  <Td className="font-medium text-gray-800">
+                    <span className="inline-flex items-center gap-1.5">
+                      <FolderTree className="h-4 w-4 text-teal-500" />
+                      {t.name}
+                    </span>
+                  </Td>
+                  <Td className="text-xs text-gray-500">
+                    一级 {counts[0]} · 二级 {counts[1]}
+                    {counts[2] > 0 && ` · 三级 ${counts[2]}`}
+                  </Td>
+                  <Td className="text-xs text-gray-500">{t.remark ?? '—'}</Td>
+                  <Td className="text-xs text-gray-500">{t.createdAt}</Td>
+                  <Td>
+                    <div className="flex items-center justify-center gap-2.5 whitespace-nowrap">
+                      <TealLink onClick={() => setTtPreview(t)}>
+                        <span className="inline-flex items-center gap-1">
+                          <Eye className="h-3.5 w-3.5" /> 预览树
+                        </span>
+                      </TealLink>
+                      <button
+                        type="button"
+                        title="删除模板（已引用创建的目录不受影响）"
+                        onClick={() => removeTreeTemplate(t)}
+                        className="text-gray-300 transition-colors hover:text-red-500"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </Td>
+                </Tr>
+              )
+            })}
+            {state.treeTemplates.length === 0 && (
+              <tr>
+                <td colSpan={5} className="py-12 text-center text-sm text-gray-400">
+                  暂无模板，点右上角「新增模板」上传目录 Excel 生成
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </DataTable>
+        <p className="mt-3 px-1 text-xs text-gray-400">
+          模板为纯目录树结构（不含命名骨架绑定）；PM 创建目录时引用作基线——引用即拷贝实例化，模板后续改动 / 删除不影响已建目录
+        </p>
+      </PageCard>
+
       {/* 骨架弹窗 */}
-      <TemplateDialog open={addOpen} onOpenChange={setAddOpen} title="新增命名骨架" initial={emptyTpl} onSubmit={submitAdd} />
-      {editTarget && (
+      <TemplateDialog open={addOpen} onOpenChange={setAddOpen} title="新增命名骨架" initial={emptyTpl} onSubmit={submitAdd} />      {editTarget && (
         <TemplateDialog
           open={!!editTarget}
           onOpenChange={(o) => !o && setEditTarget(null)}
@@ -452,6 +684,33 @@ export default function AdminNaming() {
               <Braces className="h-3.5 w-3.5" /> 保存
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* R39 二阶段B：目录树模板弹窗（新增 + 预览树） */}
+      <TreeTemplateDialog open={ttOpen} onOpenChange={setTtOpen} onSubmit={submitTreeTemplate} />
+      <Dialog open={!!ttPreview} onOpenChange={(o) => !o && setTtPreview(null)}>
+        <DialogContent showCloseButton={false} className="flex max-h-[85vh] flex-col gap-0 overflow-hidden rounded-2xl border-0 p-0 sm:max-w-lg">
+          <DialogTitle className="sr-only">模板预览</DialogTitle>
+          <ModalHeader title={ttPreview ? `模板预览 · ${ttPreview.name}` : '模板预览'} onClose={() => setTtPreview(null)} />
+          {ttPreview && (
+            <div className="min-h-0 flex-1 overflow-y-auto p-6">
+              <div className="mb-4 rounded-xl bg-teal-50/70 px-4 py-3 ring-1 ring-teal-100">
+                <div className="flex items-center gap-2 text-sm text-teal-800">
+                  <FolderTree className="h-4 w-4 shrink-0" />
+                  <span className="font-medium">{ttPreview.name}</span>
+                </div>
+                <div className="mt-1.5 text-xs text-teal-600">
+                  一级 {countCatalogTree(ttPreview.tree)[0]} 个 · 二级 {countCatalogTree(ttPreview.tree)[1]} 个
+                  {countCatalogTree(ttPreview.tree)[2] > 0 && ` · 三级 ${countCatalogTree(ttPreview.tree)[2]} 个`}
+                  {ttPreview.remark && `　｜　${ttPreview.remark}`}
+                </div>
+              </div>
+              <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                <TreePreview nodes={ttPreview.tree} depth={0} />
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

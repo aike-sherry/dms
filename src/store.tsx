@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type Dispatch, type ReactNode } from 'react'
 import { studyFolders, siteFolders, submissionFiles, submissionHospitals, submissionOverviewRows } from '@/data/mock'
 import { DEFAULT_ZONE_BY_DOC_TYPE, DEFAULT_NAMING_TEMPLATE } from '@/lib/smartDoc'
+import type { CatalogNode } from '@/lib/catalogImport'
 
 /* ================= 类型 ================= */
 
@@ -136,6 +137,56 @@ export interface NamingLog {
   originalFilename?: string
 }
 
+/* ===== R39 二阶段B：全局标准目录树模板库 + AI 语义预填开关 ===== */
+
+/** 标准目录树模板（全局库，admin 维护；PM 建目录时引用作基线——引用即拷贝树结构实例化，
+    模板后续改动/删除不影响已建目录；纯树结构，不携带命名骨架绑定） */
+export interface TreeTemplate {
+  id: string
+  name: string
+  /** 说明（可选） */
+  remark?: string
+  /** 多级文件夹节点树（复用 catalogImport 的 CatalogNode 结构） */
+  tree: CatalogNode[]
+  /** 创建时间 YYYY-MM-DD */
+  createdAt: string
+}
+
+/** 模板库种子：RJQM 标准文件管理体系（13 个一级 / 20 个二级目录，解析自《RJQM-文件管理体系.xlsx》）。
+    系统配置，不受 DEMO_MODE 影响，始终加载 */
+export const DEFAULT_TREE_TEMPLATES: TreeTemplate[] = [
+  {
+    id: 'tt1',
+    name: 'RJQM 标准文件管理体系',
+    remark: '13 个一级 / 20 个二级目录；药物临床试验机构档案管理通用基线',
+    createdAt: '2026-01-01',
+    tree: [
+      { name: '课题团队', children: [{ name: '团队联系人', children: [] }] },
+      { name: '课题管理', children: [{ name: '会议记录', children: [] }, { name: '沟通材料', children: [] }] },
+      {
+        name: '研究中心',
+        children: [{ name: '研究者简历', children: [] }, { name: '中心培训', children: [] }, { name: '伦理批件', children: [] }],
+      },
+      { name: '研究方案', children: [{ name: '临床研究方案', children: [] }] },
+      { name: '受试者信息', children: [{ name: '知情同意书', children: [] }, { name: '受试者问卷', children: [] }] },
+      { name: '严重不良事件', children: [{ name: '严重不良事件报告表', children: [] }] },
+      {
+        name: '研究协议',
+        children: [{ name: '课题任务书', children: [] }, { name: '研究中心协议', children: [] }, { name: '其他协议', children: [] }],
+      },
+      { name: '法规相关文件', children: [] },
+      {
+        name: '研究药物',
+        children: [{ name: '研究药物标签', children: [] }, { name: '药检报告', children: [] }, { name: '研究药物签收', children: [] }],
+      },
+      { name: '研究物资设备', children: [{ name: '研究设备签收', children: [] }] },
+      { name: '实验室文件', children: [{ name: '实验室正常值范围', children: [] }] },
+      { name: '数据管理', children: [{ name: 'CRF样稿', children: [] }] },
+      { name: '总结报告', children: [{ name: '研究总结报告', children: [] }] },
+    ],
+  },
+]
+
 /** 骨架库种子：系统配置，不受 DEMO_MODE 影响，始终加载（业务数据仍为空） */
 export const DEFAULT_NAMING_TEMPLATES: NamingTemplate[] = [
   { id: 'nt1', name: '方案类文件命名', skeleton: '{试验编号}-{文件类型简称}-V{版本号}-{YYYYMMDD}', status: '启用', remark: '方案/知情同意等通用文档', docTypeFilter: ['dt1', 'dt2', 'dt4'] },
@@ -198,6 +249,10 @@ export interface State {
   docTypes: DocType[]
   /** R39 命名审计日志（创建命名 + displayFilename 修改） */
   namingLogs: NamingLog[]
+  /** R39 二阶段B：标准目录树模板库（admin 维护，PM 建目录引用；系统配置不受 DEMO_MODE 影响） */
+  treeTemplates: TreeTemplate[]
+  /** R39 二阶段B：AI 语义预填全局开关（默认关；开启后 CRA 上传向导按原文件名关键词预选文档类型，仅预填不落名） */
+  aiPrefill: boolean
 }
 
 /* ================= 账号体系 ================= */
@@ -677,6 +732,9 @@ function initialState(): State {
     namingTemplates: persisted?.namingTemplates ?? DEFAULT_NAMING_TEMPLATES,
     docTypes: persisted?.docTypes ?? DEFAULT_DOC_TYPES,
     namingLogs: persisted?.namingLogs ?? [],
+    /* R39 二阶段B：模板库为系统配置（缺失回退种子）；AI 预填开关默认关 */
+    treeTemplates: persisted?.treeTemplates ?? DEFAULT_TREE_TEMPLATES,
+    aiPrefill: persisted?.aiPrefill ?? false,
   }
 }
 
@@ -711,6 +769,9 @@ interface PersistedData {
   namingTemplates?: NamingTemplate[]
   docTypes?: DocType[]
   namingLogs?: NamingLog[]
+  /** R39 二阶段B：模板库（缺失回退种子）与 AI 预填开关（缺失回退关） */
+  treeTemplates?: TreeTemplate[]
+  aiPrefill?: boolean
 }
 
 /** 读取持久化业务数据；损坏或字段缺失时回退种子数据 */
@@ -727,8 +788,8 @@ function readData(): PersistedData | null {
     ) {
       return null
     }
-    /* id 计数器推进到持久化数据中的最大值，避免刷新后新 id 冲突（R32：目录/注册表 id 同样占用计数器） */
-    for (const f of [...parsed.files, ...parsed.catalogs, ...(parsed.centers ?? [])]) {
+    /* id 计数器推进到持久化数据中的最大值，避免刷新后新 id 冲突（R32：目录/注册表 id 同样占用计数器；二阶段B：模板库同） */
+    for (const f of [...parsed.files, ...parsed.catalogs, ...(parsed.centers ?? []), ...(parsed.treeTemplates ?? [])]) {
       const m = /-(\d+)$/.exec(f.id)
       if (m) uid = Math.max(uid, Number(m[1]))
     }
@@ -758,6 +819,8 @@ function serializeData(state: State): string {
     namingTemplates: state.namingTemplates,
     docTypes: state.docTypes,
     namingLogs: state.namingLogs,
+    treeTemplates: state.treeTemplates,
+    aiPrefill: state.aiPrefill,
   }
   return JSON.stringify(data)
 }
@@ -821,6 +884,10 @@ export type Action =
   | { type: 'addNamingLogs'; logs: NamingLog[] }
   /** PM 修改文件展示名：originalFilename 永不动，displayFilename 变更同事务写一条「修改文件名」审计 */
   | { type: 'renameDisplayFilename'; id: string; name: string; operator: string; role: Role }
+  /* ===== R39 二阶段B：标准目录树模板库 / AI 预填开关 ===== */
+  | { type: 'addTreeTemplate'; template: TreeTemplate }
+  | { type: 'removeTreeTemplate'; id: string }
+  | { type: 'setAiPrefill'; on: boolean }
 
 /** 当前时间格式化为 YYYY-MM-DD HH:mm（登录日志用） */
 export function nowStr() {
@@ -1093,6 +1160,8 @@ function reducer(state: State, action: Action): State {
         namingTemplates: d.namingTemplates ?? state.namingTemplates,
         docTypes: d.docTypes ?? state.docTypes,
         namingLogs: d.namingLogs ?? state.namingLogs,
+        treeTemplates: d.treeTemplates ?? state.treeTemplates,
+        aiPrefill: d.aiPrefill ?? state.aiPrefill,
       }
     }
     /* ===== 后台管理：账户配置 ===== */
@@ -1178,6 +1247,14 @@ function reducer(state: State, action: Action): State {
         namingLogs: [log, ...state.namingLogs].slice(0, 2000),
       }
     }
+    /* ===== R39 二阶段B：模板库 / AI 预填开关 ===== */
+    case 'addTreeTemplate':
+      return { ...state, treeTemplates: [...state.treeTemplates, action.template] }
+    case 'removeTreeTemplate':
+      /* 模板引用为拷贝式实例化（建目录时已物化文件夹），删除模板不影响任何已建目录 */
+      return { ...state, treeTemplates: state.treeTemplates.filter((t) => t.id !== action.id) }
+    case 'setAiPrefill':
+      return { ...state, aiPrefill: action.on }
   }
 }
 
@@ -1212,7 +1289,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch {
       /* 存储满或不可用时静默失败，不影响内存态 */
     }
-  }, [state.files, state.catalogs, state.submissions, state.submissionSchedule, state.archiveRoutes, state.namingTemplate, state.favorites, state.craMap, state.centers, state.pmMap, state.accounts, state.accountDeleted, state.customers, state.loginLogs, state.namingTemplates, state.docTypes, state.namingLogs])
+  }, [state.files, state.catalogs, state.submissions, state.submissionSchedule, state.archiveRoutes, state.namingTemplate, state.favorites, state.craMap, state.centers, state.pmMap, state.accounts, state.accountDeleted, state.customers, state.loginLogs, state.namingTemplates, state.docTypes, state.namingLogs, state.treeTemplates, state.aiPrefill])
 
   /* R35 跨标签页同步：其他标签页写入 clinx-data-v2 时本标签页即时水合最新业务数据
      （保留本会话的登录态/角色/项目筛选；storage 事件只在本标签页之外触发，不会自环） */

@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
-import { Folder, Plus, Trash2, Upload, Download, FileSpreadsheet } from 'lucide-react'
+import { Folder, FolderTree, Plus, Trash2, Upload, Download, FileSpreadsheet } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ModalHeader } from '@/components/common'
 import { cn } from '@/lib/utils'
-import { useStore, nextId, todayStr, projPrefixMatch, PM_USER, type Catalog, type TmfFile } from '@/store'
+import { useStore, nextId, todayStr, projPrefixMatch, PM_USER, type Catalog, type TmfFile, type TreeTemplate } from '@/store'
 import {
   parseCatalogWorkbook,
   downloadCatalogTemplate,
+  countCatalogTree,
   type ParsedCatalog,
   type CatalogNode,
 } from '@/lib/catalogImport'
@@ -16,8 +17,8 @@ import {
 /* ModalHeader 已迁入 components/common；此处再导出以保持既有引用（Transfer/UploadDialog/SubmissionDialog/VersionHist/Admin 各页）不断裂 */
 export { InfoField, ModalHeader } from '@/components/common'
 
-/* 目录树预览（递归缩进） */
-function TreePreview({ nodes, depth }: { nodes: CatalogNode[]; depth: number }) {
+/* 目录树预览（递归缩进）；导出供 admin 模板库预览复用 */
+export function TreePreview({ nodes, depth }: { nodes: CatalogNode[]; depth: number }) {
   return (
     <ul className={depth > 0 ? 'mt-1 ml-4 space-y-1 border-l border-dashed border-gray-200 pl-3' : 'space-y-1'}>
       {nodes.map((n) => (
@@ -42,17 +43,28 @@ function TreePreview({ nodes, depth }: { nodes: CatalogNode[]; depth: number }) 
 }
 
 /* 行数据：一行 = 一个项目分组；SITE 型可勾选多家研究中心共用同一套目录结构（一次上传批量应用）。
-   folderName = 项目文件夹（目录）名称：默认随项目编号自动生成，用户手动编辑后（nameDirty）不再跟随编号 */
+   folderName = 项目文件夹（目录）名称：默认随项目编号自动生成，用户手动编辑后（nameDirty）不再跟随编号；
+   R39 二阶段B：source=目录来源（null 未选 / template 引用标准模板 / excel 上传目录 Excel），
+   选模板即把模板树拷贝为本行 parsed（走同一套创建/合并导入流程） */
 interface Group {
   id: string
   projectNo: string
   folderName: string
   nameDirty: boolean
   centers: string[]
+  source: 'template' | 'excel' | null
+  templateId?: string
   fileName: string | null
   parsed: ParsedCatalog | null
   error: string | null
 }
+
+/** 模板 → ParsedCatalog（计数现算；rows 无 Excel 行概念置 0） */
+const parsedFromTemplate = (t: TreeTemplate): ParsedCatalog => ({
+  tree: t.tree,
+  counts: countCatalogTree(t.tree),
+  rows: 0,
+})
 
 /* R34 SITE 图纸模式行：一行 = 一家研究中心；TMF 名称默认 `{项目编号}-TMF-{中心名}` 随中心生成，
    用户手动编辑后（nameDirty）不再跟随 */
@@ -131,7 +143,8 @@ export default function CatalogDialog({
   /* ===== R34 SITE 图纸模式状态：项目下拉 + 研究中心行表格 + 共享一份目录 Excel ===== */
   const [siteProject, setSiteProject] = useState('')
   const [siteRows, setSiteRows] = useState<SiteRow[]>([])
-  const [siteFile, setSiteFile] = useState<{ fileName: string; parsed: ParsedCatalog | null; error: string | null } | null>(null)
+  /* R39 二阶段B：source=目录来源（template 引用标准模板 / excel 上传目录 Excel） */
+  const [siteFile, setSiteFile] = useState<{ fileName: string; parsed: ParsedCatalog | null; error: string | null; source: 'template' | 'excel' } | null>(null)
   /* 上传解析成功/失败后自动展开右侧预览 */
   const [sitePreviewOpen, setSitePreviewOpen] = useState(false)
 
@@ -151,6 +164,7 @@ export default function CatalogDialog({
     fileName: null,
     parsed: null,
     error: null,
+    source: null,
   })
 
   useEffect(() => {
@@ -309,6 +323,27 @@ export default function CatalogDialog({
     uploadGroupRef.current = id
     fileInputRef.current?.click()
   }
+  /* R39 二阶段B：引用标准模板——把模板树拷贝为本行/本单 parsed，走与 Excel 同一套预览与创建流程 */
+  const applyTemplate = (id: string, templateId: string) => {
+    const t = state.treeTemplates.find((x) => x.id === templateId)
+    if (!t) return
+    if (id === '__site__') {
+      setSiteFile({ fileName: `标准模板：${t.name}`, parsed: parsedFromTemplate(t), error: null, source: 'template' })
+      setSitePreviewOpen(true)
+    } else {
+      patchGroup(id, { source: 'template', templateId: t.id, fileName: `标准模板：${t.name}`, parsed: parsedFromTemplate(t), error: null })
+    }
+  }
+  /* 换来源：清空已选内容回到「引用模板 / 上传 Excel」二选一 */
+  const resetSource = (id: string) => {
+    if (id === '__site__') {
+      setSiteFile(null)
+      setSitePreviewOpen(false)
+    } else {
+      patchGroup(id, { source: null, templateId: undefined, fileName: null, parsed: null, error: null })
+      if (previewId === id) setPreviewId(null)
+    }
+  }
   const onPicked = async (file: File | undefined) => {
     const id = uploadGroupRef.current
     if (!file || !id) return
@@ -317,18 +352,18 @@ export default function CatalogDialog({
         ? parseCatalogWorkbook(await file.text())
         : parseCatalogWorkbook(await file.arrayBuffer())
       if (id === '__site__') {
-        setSiteFile({ fileName: file.name, parsed, error: null })
+        setSiteFile({ fileName: file.name, parsed, error: null, source: 'excel' })
         setSitePreviewOpen(true)
       } else {
-        patchGroup(id, { fileName: file.name, parsed, error: null })
+        patchGroup(id, { fileName: file.name, parsed, error: null, source: 'excel' })
       }
     } catch (err) {
       const error = err instanceof Error ? err.message : '无法解析该文件'
       if (id === '__site__') {
-        setSiteFile({ fileName: file.name, parsed: null, error })
+        setSiteFile({ fileName: file.name, parsed: null, error, source: 'excel' })
         setSitePreviewOpen(true)
       } else {
-        patchGroup(id, { fileName: file.name, parsed: null, error })
+        patchGroup(id, { fileName: file.name, parsed: null, error, source: 'excel' })
       }
     }
   }
@@ -339,7 +374,7 @@ export default function CatalogDialog({
   const noCenterGroups = type === 'site' ? readyGroups.filter((g) => g.centers.length === 0) : []
   const confirmAll = () => {
     if (readyGroups.length === 0) {
-      toast.warning('请先上传目录 Excel')
+      toast.warning('请先引用标准模板或上传目录 Excel')
       return
     }
     const exec = readyGroups.filter((g) => type !== 'site' || g.centers.length > 0)
@@ -429,7 +464,7 @@ export default function CatalogDialog({
       return
     }
     if (!siteFile?.parsed) {
-      toast.warning('请先上传目录 Excel', { description: siteFile?.error ? `解析失败：${siteFile.error}` : '一份目录结构将应用到全部中心行' })
+      toast.warning('请先引用标准模板或上传目录 Excel', { description: siteFile?.error ? `解析失败：${siteFile.error}` : '一份目录结构将应用到全部中心行' })
       return
     }
     const newCatalogs: Catalog[] = []
@@ -669,19 +704,30 @@ export default function CatalogDialog({
                   </table>
                 </div>
 
-                {/* 左下：上传目录（一份 Excel 应用到全部行）+ 下载模板；上传后文件名芯片（点击重传）+ 计数/解析失败 */}
+                {/* 左下：目录来源二选一（R39 二阶段B：引用标准模板 / 上传目录，一份应用到全部行）+ 下载模板；
+                    已选后文件名/模板名芯片（Excel 点击重传）+ 计数/解析失败 +「更换」回到二选一 */}
                 <div className="mt-4 flex items-center gap-3">
                   {siteFile ? (
                     <>
-                      <button
-                        type="button"
-                        title="点击重新上传"
-                        onClick={() => pickForGroup('__site__')}
-                        className="flex min-w-0 items-center gap-1.5 rounded-lg bg-teal-50/70 px-2.5 py-1.5 text-xs text-teal-700 ring-1 ring-teal-100 transition-colors hover:bg-teal-50"
-                      >
-                        <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
-                        <span className="max-w-56 truncate">{siteFile.fileName}</span>
-                      </button>
+                      {siteFile.source === 'template' ? (
+                        <span
+                          className="flex min-w-0 items-center gap-1.5 rounded-lg bg-teal-50/70 px-2.5 py-1.5 text-xs text-teal-700 ring-1 ring-teal-100"
+                          title="引用标准目录树模板（已拷贝树结构，应用到全部中心行）"
+                        >
+                          <FolderTree className="h-3.5 w-3.5 shrink-0" />
+                          <span className="max-w-56 truncate">{siteFile.fileName}</span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          title="点击重新上传"
+                          onClick={() => pickForGroup('__site__')}
+                          className="flex min-w-0 items-center gap-1.5 rounded-lg bg-teal-50/70 px-2.5 py-1.5 text-xs text-teal-700 ring-1 ring-teal-100 transition-colors hover:bg-teal-50"
+                        >
+                          <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
+                          <span className="max-w-56 truncate">{siteFile.fileName}</span>
+                        </button>
+                      )}
                       {siteFile.parsed && (
                         <span className="shrink-0 text-[10px] text-gray-400">
                           一级 {siteFile.parsed.counts[0]} · 二级 {siteFile.parsed.counts[1]}
@@ -693,15 +739,41 @@ export default function CatalogDialog({
                           解析失败
                         </span>
                       )}
+                      <button
+                        type="button"
+                        title="更换目录来源"
+                        onClick={() => resetSource('__site__')}
+                        className="shrink-0 text-[10px] text-gray-400 transition-colors hover:text-teal-600 hover:underline"
+                      >
+                        更换
+                      </button>
                     </>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => pickForGroup('__site__')}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs text-teal-600 transition-colors hover:border-teal-400 hover:bg-teal-50/50"
-                    >
-                      <Upload className="h-3.5 w-3.5" /> 上传目录
-                    </button>
+                    <>
+                      <select
+                        value=""
+                        onChange={(e) => e.target.value && applyTemplate('__site__', e.target.value)}
+                        disabled={state.treeTemplates.length === 0}
+                        title={state.treeTemplates.length === 0 ? '模板库为空（admin 端 NAMING 页维护）' : '从标准目录树模板库引用，应用到全部中心行'}
+                        className="w-44 cursor-pointer rounded-lg border border-gray-200 bg-white px-2 py-2 text-center text-xs text-teal-600 outline-none transition-colors hover:border-teal-300 focus:border-teal-500 disabled:cursor-not-allowed disabled:text-gray-300"
+                      >
+                        <option value="">
+                          {state.treeTemplates.length === 0 ? '模板库为空' : '引用标准模板…'}
+                        </option>
+                        {state.treeTemplates.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => pickForGroup('__site__')}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs text-teal-600 transition-colors hover:border-teal-400 hover:bg-teal-50/50"
+                      >
+                        <Upload className="h-3.5 w-3.5" /> 上传目录
+                      </button>
+                    </>
                   )}
                   <span className="ml-auto">
                     <Button
@@ -817,33 +889,67 @@ export default function CatalogDialog({
                             )}
                           />
                         </td>
-                        {/* 导入目录：teal 链接；上传后显示文件名（点击可重传）+ 红色「解析失败」 */}
+                        {/* 导入目录（R39 二阶段B 双来源）：未选时二选一——引用标准模板下拉 / 上传目录 Excel；
+                            已选显示来源芯片（模板=FolderTree 图标，Excel=表格图标点击重传）+「更换」回到二选一 */}
                         <td className="px-2 py-1.5 text-center">
-                          {g.parsed || g.error ? (
-                            <div className="flex min-w-0 items-center justify-center gap-1.5">
+                          {g.source === null ? (
+                            <div className="flex flex-col items-center gap-1.5">
+                              <select
+                                value=""
+                                onChange={(e) => e.target.value && applyTemplate(g.id, e.target.value)}
+                                disabled={state.treeTemplates.length === 0}
+                                title={state.treeTemplates.length === 0 ? '模板库为空（admin 端 NAMING 页维护）' : '从标准目录树模板库引用'}
+                                className="w-36 cursor-pointer rounded-md border border-gray-200 bg-white px-1.5 py-1 text-center text-xs text-teal-600 outline-none transition-colors hover:border-teal-300 focus:border-teal-500 disabled:cursor-not-allowed disabled:text-gray-300"
+                              >
+                                <option value="">
+                                  {state.treeTemplates.length === 0 ? '模板库为空' : '引用标准模板…'}
+                                </option>
+                                {state.treeTemplates.map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.name}
+                                  </option>
+                                ))}
+                              </select>
                               <button
                                 type="button"
-                                title="点击重新上传"
                                 onClick={() => pickForGroup(g.id)}
-                                className="flex min-w-0 items-center gap-1 text-xs text-teal-600 hover:underline"
+                                className="inline-flex items-center gap-1 text-xs text-teal-600 transition-colors hover:text-teal-700 hover:underline"
                               >
-                                <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
-                                <span className="truncate">{g.fileName}</span>
+                                <Upload className="h-3.5 w-3.5" /> 上传目录
                               </button>
+                            </div>
+                          ) : (
+                            <div className="flex min-w-0 items-center justify-center gap-1.5">
+                              {g.source === 'template' ? (
+                                <span className="flex min-w-0 items-center gap-1 text-xs text-teal-600" title="引用标准目录树模板（已拷贝树结构）">
+                                  <FolderTree className="h-3.5 w-3.5 shrink-0" />
+                                  <span className="truncate">{g.fileName}</span>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  title="点击重新上传"
+                                  onClick={() => pickForGroup(g.id)}
+                                  className="flex min-w-0 items-center gap-1 text-xs text-teal-600 hover:underline"
+                                >
+                                  <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
+                                  <span className="truncate">{g.fileName}</span>
+                                </button>
+                              )}
                               {g.error && (
                                 <span className="shrink-0 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] whitespace-nowrap text-red-500 ring-1 ring-red-100">
                                   解析失败
                                 </span>
                               )}
+                              <button
+                                type="button"
+                                title="更换目录来源"
+                                onClick={() => resetSource(g.id)}
+                                className="shrink-0 text-[10px] text-gray-400 transition-colors hover:text-teal-600 hover:underline"
+                              >
+                                更换
+                              </button>
                             </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => pickForGroup(g.id)}
-                              className="inline-flex items-center gap-1 text-xs text-teal-600 transition-colors hover:text-teal-700 hover:underline"
-                            >
-                              <Upload className="h-3.5 w-3.5" /> 上传目录
-                            </button>
                           )}
                         </td>
                         {/* 操作：预览/收起预览（未上传禁用）+ 删除 */}
@@ -1004,7 +1110,7 @@ export default function CatalogDialog({
         {/* 底部固定操作（取消 / 确认创建，右下）；SITE 图纸模式可确认条件=目录 Excel 解析成功 */}
         <div className="flex shrink-0 items-center gap-2 border-t border-gray-100 px-5 py-4">
           {(type === 'site' ? !siteFile?.parsed : readyGroups.length === 0) && (
-            <span className="text-xs text-gray-400">请先上传目录 Excel</span>
+            <span className="text-xs text-gray-400">请先引用标准模板或上传目录 Excel</span>
           )}
           <span className="ml-auto" />
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
