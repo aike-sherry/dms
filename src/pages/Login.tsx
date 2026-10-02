@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import {
   User,
+  Mail,
   Lock,
   Eye,
   EyeOff,
@@ -22,54 +23,70 @@ const features = [
     icon: FolderArchive,
     title: 'TMF 文档全流程管理',
     desc: '目录配置 · 版本管理 · 归档路由一站完成',
-    iconCls: 'text-teal-600 ring-teal-200/70',
+    iconCls: 'from-teal-400 to-emerald-500 shadow-teal-500/25',
   },
   {
     icon: Sparkles,
     title: '智能命名 · 自动归档',
     desc: '上传即按规则命名 · 审核通过自动归档至目标目录',
-    iconCls: 'text-cyan-600 ring-cyan-200/70',
+    iconCls: 'from-cyan-400 to-teal-600 shadow-cyan-500/25',
   },
   {
     icon: ClipboardCheck,
     title: '多中心文件实时质控',
     desc: '审核 · 驳回 · 递交全程留痕可溯',
-    iconCls: 'text-blue-600 ring-blue-200/70',
+    iconCls: 'from-sky-400 to-blue-600 shadow-sky-500/25',
   },
 ]
 
-/* ---------------- 输入框 ---------------- */
+/* ---------------- R40 LOGO 字标 + 微笑弧线（参照「科研数据管理平台」登录页：teal→紫渐变弧） ---------------- */
+
+function LogoWithArc({ imgCls, arcId }: { imgCls: string; arcId: string }) {
+  return (
+    <span className="inline-flex flex-col items-center">
+      <img src={logoImg} alt="CLINI X TRIALS" className={imgCls} />
+      <svg viewBox="0 0 120 12" aria-hidden className="mt-0.5 h-2 w-[86%]" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id={arcId} x1="0" y1="0" x2="120" y2="0" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#2dd4bf" />
+            <stop offset="1" stopColor="#a78bfa" />
+          </linearGradient>
+        </defs>
+        <path d="M 3 2.5 Q 60 14 117 2.5" stroke={`url(#${arcId})`} strokeWidth="2.6" fill="none" strokeLinecap="round" />
+      </svg>
+    </span>
+  )
+}
+
+/* ---------------- 输入框（R40：胶囊形 rounded-full、图标内嵌、去独立 label 改占位符文案） ---------------- */
 
 function Field({
-  label,
   icon: Icon,
   error,
   children,
 }: {
-  label: string
   icon: typeof User
   error?: string
   children: React.ReactNode
 }) {
   return (
     <div>
-      <label className="mb-2 block text-sm font-medium text-gray-600">{label}</label>
       <div
         className={cn(
-          'group flex items-center gap-3 rounded-xl border bg-white/60 px-4 backdrop-blur-sm transition-all focus-within:border-teal-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-teal-500/15',
-          error ? 'border-red-300' : 'border-gray-200/90 hover:border-gray-300',
+          'group flex items-center gap-3 rounded-full border bg-white px-5 transition-all focus-within:border-teal-400 focus-within:shadow-[0_0_0_4px_rgba(45,212,191,0.14)]',
+          error ? 'border-red-300' : 'border-gray-200 hover:border-gray-300',
         )}
       >
         <Icon className="h-5 w-5 shrink-0 text-gray-400 transition-colors group-focus-within:text-teal-500" />
         {children}
       </div>
-      {error && <p className="mt-1.5 text-[13px] text-red-500">{error}</p>}
+      {error && <p className="mt-1.5 pl-5 text-[13px] text-red-500">{error}</p>}
     </div>
   )
 }
 
 const inputCls =
-  'h-12 w-full bg-transparent text-base text-gray-800 outline-none placeholder:text-gray-400'
+  'h-[52px] w-full bg-transparent text-[15px] text-gray-800 outline-none placeholder:text-gray-400'
 
 /* ---------------- 左下品牌主视觉：TMF 文档流转示意（纯 CSS/SVG） ---------------- */
 
@@ -286,9 +303,11 @@ export default function Login() {
           maskImage: 'radial-gradient(ellipse 95% 90% at 50% 42%, black 55%, transparent 100%)',
         }}
       />
-      {/* 背景第二层：渐变光斑 */}
+      {/* 背景第二层：渐变光斑（R40：右上/中部补紫罗兰光晕，克制不抢戏） */}
       <div className="pointer-events-none absolute -top-40 -left-32 h-[28rem] w-[28rem] rounded-full bg-teal-200/40 blur-3xl" />
-      <div className="pointer-events-none absolute top-1/4 -right-32 h-[26rem] w-[26rem] rounded-full bg-cyan-200/40 blur-3xl" />
+      <div className="pointer-events-none absolute top-1/4 -right-32 h-[26rem] w-[26rem] rounded-full bg-violet-200/45 blur-3xl" />
+      <div className="pointer-events-none absolute top-[6%] right-[24%] hidden h-72 w-72 rounded-full bg-violet-200/30 blur-3xl lg:block" />
+      <div className="pointer-events-none absolute top-1/3 right-[8%] h-80 w-80 rounded-full bg-cyan-200/35 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-40 left-[36%] h-[22rem] w-[22rem] rounded-full bg-sky-200/30 blur-3xl" />
       {/* 背景第三层：描边空心大水印（与内容呼应，不压文字） */}
       <div
@@ -306,16 +325,16 @@ export default function Login() {
         GCP
       </div>
 
-      {/* 顶部一行：左侧 LOGO + 竖向修饰线 + 系统名/英文副标题（右上角留空） */}
+      {/* 顶部一行：左侧 LOGO（R40 字标+微笑弧线）+ 竖向修饰线 + 系统名/英文渐变大写副标题（右上角留空） */}
       <header className="relative z-10 flex items-center px-5 py-4 sm:px-10">
-        <img src={logoImg} alt="CLINI X TRIALS" className="h-9 w-auto sm:h-14" />
+        <LogoWithArc imgCls="h-9 w-auto sm:h-14" arcId="logoArcHeader" />
         <div aria-hidden className="mx-3 h-8 w-px bg-gray-300/90 sm:mx-4 sm:h-11" />
         <div>
-          <div className="text-base font-bold tracking-wide text-[#182838] sm:text-xl">
+          <div className="text-lg font-extrabold tracking-wide text-[#182838] sm:text-2xl">
             研究文件管理系统
           </div>
-          <div className="mt-0.5 text-[10px] tracking-wider text-gray-500 sm:text-xs">
-            Clinical Trial Document Management System
+          <div className="mt-0.5 bg-gradient-to-r from-teal-500 to-violet-500 bg-clip-text text-[10px] font-semibold tracking-[0.18em] text-transparent uppercase sm:text-xs">
+            Document Management System
           </div>
         </div>
       </header>
@@ -325,17 +344,18 @@ export default function Login() {
         {/* 左侧品牌区（约 55% 宽） */}
         <section className="w-full pt-2 lg:w-[55%] lg:pt-0 lg:pl-8 xl:pl-16">
           <div className="login-fade-up">
-            <span className="inline-flex items-center rounded-full border border-teal-200/90 bg-white/60 px-4 py-1.5 text-sm font-medium text-teal-600 shadow-sm backdrop-blur-sm">
+            <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-1.5 text-sm font-medium text-teal-700 shadow-[0_10px_28px_-10px_rgba(15,118,110,0.3)] ring-1 ring-gray-100">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
               智能一体化临床研究文件管理平台
             </span>
           </div>
 
           <div className="login-fade-up mt-5" style={{ animationDelay: '0.08s' }}>
-            <h1 className="text-4xl font-bold tracking-wide 2xl:text-5xl">
+            <h1 className="text-[2.5rem] leading-tight font-extrabold tracking-wide sm:text-5xl 2xl:text-6xl">
               {/* 两行拉开行距；第一行深青墨绿（参考图取色 #134e4a 一类深 teal） */}
-              <span className="block leading-normal text-[#134e4a]">以智能科技 · 赋能科研创新</span>
+              <span className="block text-[#134e4a]">以智能科技 · 赋能科研创新</span>
               {/* 第二行青→蓝绿渐变（原图取色 #28d0c8 → #30c0f0） */}
-              <span className="mt-3 block bg-gradient-to-r from-[#28d0c8] to-[#30c0f0] bg-clip-text leading-normal text-transparent sm:mt-4">
+              <span className="mt-3 block bg-gradient-to-r from-[#28d0c8] to-[#30c0f0] bg-clip-text text-transparent sm:mt-4">
                 让研究轻松前行
               </span>
             </h1>
@@ -346,25 +366,26 @@ export default function Login() {
             </div>
           </div>
 
-          {/* 三条系统特点（窄屏隐藏，精简品牌区；收窄 max-w-md 避免顶到中缝） */}
-          <ul className="mt-12 hidden max-w-md space-y-5 lg:block">
+          {/* 三条系统特点（R40：纯文字行 → 三张白色圆角卡片：左侧彩色圆角方块图标 + 标题加粗 + 描述小字；
+              窄屏隐藏，精简品牌区） */}
+          <ul className="mt-10 hidden max-w-lg space-y-4 lg:block 2xl:mt-12">
             {features.map(({ icon: Icon, title, desc, iconCls }, i) => (
               <li
                 key={title}
-                className="login-fade-up flex items-center gap-4"
+                className="login-fade-up flex items-center gap-4 rounded-2xl bg-white p-4 shadow-[0_16px_40px_-16px_rgba(15,118,110,0.18)] ring-1 ring-gray-100/90 2xl:p-5"
                 style={{ animationDelay: `${0.24 + i * 0.1}s` }}
               >
                 <div
                   className={cn(
-                    'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-white/85 to-white/45 shadow-sm ring-1 backdrop-blur-sm',
+                    'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-lg',
                     iconCls,
                   )}
                 >
-                  <Icon className="h-5 w-5" strokeWidth={1.8} />
+                  <Icon className="h-5 w-5" strokeWidth={1.9} />
                 </div>
                 <div>
-                  <div className="text-base font-semibold text-gray-800">{title}</div>
-                  <div className="mt-0.5 text-sm leading-relaxed text-gray-500">{desc}</div>
+                  <div className="text-base font-bold text-gray-800">{title}</div>
+                  <div className="mt-0.5 text-[13px] leading-relaxed text-gray-500">{desc}</div>
                 </div>
               </li>
             ))}
@@ -374,43 +395,44 @@ export default function Login() {
           <DocFlowVisual />
         </section>
 
-        {/* 右侧登录卡片（约 440px 宽，玻璃拟态） */}
+        {/* 右侧登录卡片（R40：约 440px 宽，更白更实、大圆角柔和投影、内容居中） */}
         <section className="flex w-full justify-center lg:w-[45%] lg:justify-end lg:pr-8 xl:pr-16">
           <div
-            className="login-fade-up relative w-full max-w-[440px] rounded-[1.75rem] bg-white/75 p-8 shadow-[0_24px_70px_-16px_rgba(15,118,110,0.22)] ring-1 ring-white/70 backdrop-blur-xl sm:p-9"
+            className="login-fade-up relative w-full max-w-[440px] rounded-[2rem] bg-white p-8 shadow-[0_32px_80px_-20px_rgba(15,118,110,0.3)] ring-1 ring-gray-100 sm:p-10"
             style={{ animationDelay: '0.12s' }}
           >
-            {/* 顶部细高光 */}
+            {/* 顶部紫→teal 渐变细边（参照图卡片顶边） */}
             <div
               aria-hidden
-              className="absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-teal-300/70 to-transparent"
+              className="absolute inset-x-8 top-0 h-[3px] rounded-full bg-gradient-to-r from-violet-400 via-sky-400 to-teal-400"
             />
-            {/* 卡片头部品牌组合 */}
-            <div className="flex items-center gap-2.5">
-              <img src={logoImg} alt="CLINI X TRIALS" className="h-8 w-auto" />
-              <span className="ml-auto rounded-full bg-teal-50/90 px-2.5 py-1 text-[10px] font-semibold tracking-wider text-teal-600 ring-1 ring-teal-100">
-                eTMF
-              </span>
+            {/* eTMF 徽标保留（右上） */}
+            <span className="absolute top-6 right-7 rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-semibold tracking-wider text-teal-600 ring-1 ring-teal-100">
+              eTMF
+            </span>
+            {/* 卡片头部：居中 logo 字标 + 弧线小版 */}
+            <div className="flex justify-center">
+              <LogoWithArc imgCls="h-8 w-auto" arcId="logoArcCard" />
             </div>
 
-            <h2 className="mt-5 text-2xl font-bold tracking-wide text-gray-900">欢迎登录</h2>
-            <p className="mt-1.5 text-sm text-gray-500">请使用账号密码登录研究文件管理系统</p>
+            <h2 className="mt-5 text-center text-[1.75rem] font-extrabold tracking-wide text-gray-900">欢迎登录</h2>
+            <p className="mt-1.5 text-center text-[13px] tracking-wide text-gray-400">Document Management System</p>
 
-            <form onSubmit={submit} noValidate className="mt-7 space-y-5">
-              <Field label="账号" icon={User} error={errors.account}>
+            <form onSubmit={submit} noValidate className="mt-8 space-y-5">
+              <Field icon={Mail} error={errors.account}>
                 <input
                   className={inputCls}
-                  placeholder="请输入邮箱或用户名"
+                  placeholder="登录账号 / 邮箱"
                   value={account}
                   onChange={(e) => setAccount(e.target.value)}
                   autoComplete="username"
                 />
               </Field>
-              <Field label="密码" icon={Lock} error={errors.password}>
+              <Field icon={Lock} error={errors.password}>
                 <input
                   className={inputCls}
                   type={showPwd ? 'text' : 'password'}
-                  placeholder="请输入登录密码"
+                  placeholder="登录密码"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
@@ -429,10 +451,10 @@ export default function Login() {
                 type="submit"
                 disabled={loading}
                 className={cn(
-                  'group flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-semibold text-white shadow-lg shadow-teal-500/25 transition-all',
+                  'group flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-base font-bold text-white shadow-[0_16px_36px_-12px_rgba(139,92,246,0.45)] transition-all',
                   loading
                     ? 'cursor-wait bg-teal-400'
-                    : 'bg-gradient-to-r from-teal-500 to-cyan-600 hover:shadow-xl hover:shadow-teal-500/30 hover:brightness-105 active:scale-[0.99]',
+                    : 'bg-gradient-to-r from-[#a78bfa] via-[#60a5fa] to-[#2dd4bf] hover:shadow-[0_20px_44px_-12px_rgba(45,212,191,0.5)] hover:brightness-105 active:scale-[0.99]',
                 )}
               >
                 {loading ? (
@@ -449,10 +471,10 @@ export default function Login() {
               </button>
             </form>
 
-            {/* 演示账号提示 */}
-            <div className="mt-7 border-t border-gray-200/70 pt-5 text-xs leading-relaxed text-gray-400">
-              <div className="mb-1.5 font-medium text-gray-500">演示账号（密码均为 123456）</div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {/* 演示账号提示（保留，样式收敛） */}
+            <div className="mt-7 border-t border-gray-100 pt-4 text-center text-[11px] leading-relaxed text-gray-400">
+              <div className="mb-1">演示账号（密码均为 123456）</div>
+              <div className="flex flex-wrap justify-center gap-x-3 gap-y-1">
                 <span>
                   管理端 <code className="rounded bg-gray-50 px-1 font-mono text-gray-500">admin</code>
                 </span>
