@@ -91,11 +91,6 @@ export default function Sidebar({
           )
         })}
       </nav>
-
-      {/* 角色标识徽章 */}
-      <div className="mt-4 rounded-full border border-white/30 px-2.5 py-0.5 text-[9px] tracking-wider text-white/70">
-        {role === 'pm' ? '项目经理端' : role === 'executor' ? '执行人员端' : '系统管理端'}
-      </div>
     </aside>
   )
 }
