@@ -20,16 +20,16 @@ export const BG_PRESETS: { name: string; value: string }[] = [
   { name: '深空灰', value: '#e8eaef' },
 ]
 
-/** 预设导航栏背景（深色渐变为主，与白字对比清晰） */
+/** 预设导航栏背景（深色低饱和渐变为主，与白字对比清晰） */
 export const NAV_PRESETS: { name: string; value: string }[] = [
   { name: '默认青蓝', value: DEFAULT_NAV_BG },
-  { name: '翡翠绿', value: 'linear-gradient(180deg, #059669 0%, #10b981 55%, #047857 100%)' },
-  { name: '深海蓝', value: 'linear-gradient(180deg, #2563eb 0%, #1d4ed8 55%, #1e3a8a 100%)' },
-  { name: '暮光紫', value: 'linear-gradient(180deg, #8b5cf6 0%, #7c3aed 55%, #4c1d95 100%)' },
-  { name: '落日橙', value: 'linear-gradient(180deg, #f97316 0%, #ea580c 55%, #9a3412 100%)' },
-  { name: '玫瑰红', value: 'linear-gradient(180deg, #f43f5e 0%, #e11d48 55%, #881337 100%)' },
-  { name: '曜石黑', value: 'linear-gradient(180deg, #334155 0%, #1e293b 55%, #0f172a 100%)' },
-  { name: '纯粹青', value: 'linear-gradient(180deg, #14b8a6 0%, #0d9488 55%, #115e59 100%)' },
+  { name: '深空蓝', value: 'linear-gradient(180deg, #1e40af 0%, #1e3a8a 55%, #0e1d47 100%)' },
+  { name: '石墨蓝灰', value: 'linear-gradient(180deg, #475569 0%, #334155 55%, #1e293b 100%)' },
+  { name: '墨玉绿', value: 'linear-gradient(180deg, #256a5a 0%, #1c4f44 55%, #12332c 100%)' },
+  { name: '藏青', value: 'linear-gradient(180deg, #22336b 0%, #1a2750 55%, #101a36 100%)' },
+  { name: '暮山紫', value: 'linear-gradient(180deg, #655b93 0%, #4f4675 55%, #373051 100%)' },
+  { name: '曜石黑', value: 'linear-gradient(180deg, #39404e 0%, #262b35 55%, #15181e 100%)' },
+  { name: '檀色', value: 'linear-gradient(180deg, #835046 0%, #673d35 55%, #472a24 100%)' },
 ]
 
 /** 由单色生成纵向渐变（顶部原色 → 底部加深 30%） */

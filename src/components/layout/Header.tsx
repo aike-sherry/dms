@@ -164,9 +164,18 @@ function ColorSection({
             自定义任意颜色
           </span>
         </label>
-        <span className="w-20 rounded-lg bg-gray-50 px-2.5 py-2 text-center font-mono text-xs text-gray-600 ring-1 ring-gray-100">
-          {customValue.toUpperCase()}
-        </span>
+        <label
+          className="relative h-[22px] w-[22px] shrink-0 cursor-pointer overflow-hidden rounded-full ring-1 ring-black/10 transition-transform hover:scale-110"
+          style={{ background: customValue }}
+          title={`当前自定义颜色 ${customValue.toUpperCase()}，点击重新取色`}
+        >
+          <input
+            type="color"
+            value={customValue}
+            onChange={(e) => onCustom(e.target.value)}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          />
+        </label>
       </div>
     </div>
   )
