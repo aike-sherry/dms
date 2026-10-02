@@ -11,7 +11,7 @@ export default function ExHome() {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-3 gap-5">
+      <div className="grid grid-cols-3 items-start gap-5">
         <StudyDonutCard files={myFiles} />
         <SiteStatCards files={myFiles} />
       </div>

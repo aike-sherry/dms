@@ -142,15 +142,15 @@ export function StudyDonutCard({ files }: { files?: TmfFile[] }) {
       extra={<ToolbarSelect value={project} onChange={setProject} options={projectFilterOptions} />}
     >
       <div className="relative">
-        <PieChart width={216} height={216}>
+        <PieChart width={176} height={176}>
           <Pie
             data={donut}
             dataKey="value"
             nameKey="name"
-            cx={108}
-            cy={108}
-            innerRadius={68}
-            outerRadius={94}
+            cx={88}
+            cy={88}
+            innerRadius={54}
+            outerRadius={74}
             startAngle={90}
             endAngle={-270}
             strokeWidth={0}
@@ -166,11 +166,11 @@ export function StudyDonutCard({ files }: { files?: TmfFile[] }) {
         </PieChart>
         {/* 中心汇总：归档率 + 文件总数 */}
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-[26px] leading-none font-bold text-gray-800">{rate}%</span>
-          <span className="mt-1.5 text-[11px] text-gray-400">归档率</span>
+          <span className="text-2xl leading-none font-bold text-gray-800">{rate}%</span>
+          <span className="mt-1 text-[11px] text-gray-400">归档率</span>
         </div>
       </div>
-      <div className="mt-5 flex items-center gap-4">
+      <div className="mt-4 flex items-center gap-4">
         {donut.map((d) => (
           <span
             key={d.name}
@@ -207,7 +207,7 @@ export function SiteStatCards({ files }: { files?: TmfFile[] }) {
       bodyClassName="flex-1"
       extra={<ToolbarSelect value={project} onChange={setProject} options={projectFilterOptions} />}
     >
-      <div className="grid h-full grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         {cards.map((card, i) => {
           const Icon = statIcons[card.icon]
           /* 占比条：上传卡为基数 100%，其余按占上传量的比例 */
@@ -216,25 +216,25 @@ export function SiteStatCards({ files }: { files?: TmfFile[] }) {
           return (
             <div
               key={card.label}
-              className="flex h-full flex-col justify-between rounded-xl p-5 ring-1 ring-gray-100/60"
+              className="flex flex-col rounded-xl p-4 ring-1 ring-gray-100/60"
               style={{ backgroundColor: `${card.color}0d` }}
             >
               <div className="flex items-start justify-between">
                 <div>
                   <div className="text-xs text-gray-400">{card.label}</div>
-                  <div className="mt-2 text-[30px] leading-none font-semibold text-gray-800">
+                  <div className="mt-1.5 text-[32px] leading-none font-semibold text-gray-800">
                     {card.value}
                     <span className="ml-1 text-xs font-normal text-gray-400">个</span>
                   </div>
                 </div>
                 <div
-                  className="flex h-11 w-11 items-center justify-center rounded-xl shadow-sm"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl shadow-sm"
                   style={{ backgroundColor: card.color }}
                 >
                   <Icon className="h-5 w-5 text-white" />
                 </div>
               </div>
-              <div className="mt-5">
+              <div className="mt-3.5">
                 <div className="h-1.5 overflow-hidden rounded-full bg-black/5">
                   <div
                     className="h-full rounded-full transition-all"
@@ -833,7 +833,7 @@ function PmAssignCard() {
 export default function Home() {
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-3 gap-5">
+      <div className="grid grid-cols-3 items-start gap-5">
         <StudyDonutCard />
         <SiteStatCards />
       </div>

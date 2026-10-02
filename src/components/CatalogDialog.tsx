@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
-import { Folder, FolderTree, Plus, Trash2, Upload, Download, FileSpreadsheet } from 'lucide-react'
+import { Folder, FolderTree, Plus, Trash2, Upload, Download, FileSpreadsheet, ChevronDown, Undo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -147,6 +147,8 @@ export default function CatalogDialog({
   const [siteFile, setSiteFile] = useState<{ fileName: string; parsed: ParsedCatalog | null; error: string | null; source: 'template' | 'excel' } | null>(null)
   /* 上传解析成功/失败后自动展开右侧预览 */
   const [sitePreviewOpen, setSitePreviewOpen] = useState(false)
+  /* R44：STUDY 行「导入目录」胶囊分段控件——记录展开了模板下拉的行 id（null = 各行均显示分段组） */
+  const [tplPickerRow, setTplPickerRow] = useState<string | null>(null)
 
   /* R30：newGroup 支持预填项目编号（页面已按项目筛选时）；SITE 型按该项目已配置中心默认全选（已建目录不勾）。
      注意：调用时机均在 render 之后（useEffect / 事件回调），defaultName/centersForProject 虽已定义为后文 const 但可调 */
@@ -175,6 +177,7 @@ export default function CatalogDialog({
       setPreviewId(null)
       setSel(new Set())
       setMaximized(false)
+      setTplPickerRow(null)
       uploadGroupRef.current = null
       /* R34 SITE 图纸模式初始化：项目默认=页面筛选值（须为注册表有中心的项目），否则空（未选项目提交时拦截）；
          R38：预填项目时同步自动铺出该中心行 */
@@ -332,6 +335,7 @@ export default function CatalogDialog({
       setSitePreviewOpen(true)
     } else {
       patchGroup(id, { source: 'template', templateId: t.id, fileName: `标准模板：${t.name}`, parsed: parsedFromTemplate(t), error: null })
+      if (tplPickerRow === id) setTplPickerRow(null)
     }
   }
   /* 换来源：清空已选内容回到「引用模板 / 上传 Excel」二选一 */
@@ -558,7 +562,7 @@ export default function CatalogDialog({
             ? 'h-[92vh] w-[96vw] max-w-[96vw] sm:max-w-[96vw]'
             : showPreview
               ? 'sm:max-w-[min(92vw,72rem)]'
-              : 'sm:max-w-[820px]',
+              : 'sm:max-w-5xl',
         )}
       >
         <DialogTitle className="sr-only">目录创建</DialogTitle>
@@ -831,10 +835,10 @@ export default function CatalogDialog({
             {/* 干净表格：浅灰表头（居中）+ 细分隔线 + teal 文字链接；行内输入框无边框融入表格；
                 min-w + 横向滚动：预览展开左栏变窄时表格不挤压换行 */}
             <div className="overflow-x-auto rounded-xl border border-gray-200">
-              <table className="w-full min-w-[680px] text-sm">
+              <table className="w-full min-w-[720px] text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-center text-xs font-medium whitespace-nowrap text-gray-500">
-                    <th className="w-9 px-3 py-2.5 text-center">
+                    <th className="w-9 px-3 py-3 text-center">
                       <input
                         type="checkbox"
                         className="h-3.5 w-3.5 accent-teal-500"
@@ -844,10 +848,10 @@ export default function CatalogDialog({
                         }
                       />
                     </th>
-                    <th className="w-[160px] min-w-[160px] px-2 py-2.5">项目编号</th>
-                    <th className="min-w-40 px-2 py-2.5">文件夹名称</th>
-                    <th className="w-44 px-2 py-2.5">导入目录</th>
-                    <th className="w-32 px-2 py-2.5">操作</th>
+                    <th className="w-[160px] min-w-[160px] px-2 py-3">项目编号</th>
+                    <th className="min-w-40 px-2 py-3">文件夹名称</th>
+                    <th className="w-56 px-2 py-3">导入目录</th>
+                    <th className="w-32 px-2 py-3">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -858,7 +862,7 @@ export default function CatalogDialog({
                         key={g.id}
                         className={cn('border-t border-gray-100 transition-colors', isPreviewing && 'bg-teal-50/40')}
                       >
-                        <td className="px-3 py-2 text-center">
+                        <td className="px-3 py-2.5 text-center">
                           <input
                             type="checkbox"
                             className="h-3.5 w-3.5 accent-teal-500"
@@ -867,7 +871,7 @@ export default function CatalogDialog({
                           />
                         </td>
                         {/* 项目编号：纯文本输入（新建场景不展示既往编号）；列宽 160px 容下完整 placeholder 与典型编号 */}
-                        <td className="px-1 py-1.5 text-center">
+                        <td className="px-1 py-2.5 text-center">
                           <input
                             value={g.projectNo}
                             onChange={(e) => setProjectNo(g.id, e.target.value)}
@@ -876,7 +880,7 @@ export default function CatalogDialog({
                           />
                         </td>
                         {/* 文件夹名称：默认随编号自动生成，可手改（dirty 后编号不再覆盖） */}
-                        <td className="px-1 py-1.5 text-center">
+                        <td className="px-1 py-2.5 text-center">
                           <input
                             value={g.folderName}
                             onChange={(e) => setFolderName(g.id, e.target.value)}
@@ -889,35 +893,61 @@ export default function CatalogDialog({
                             )}
                           />
                         </td>
-                        {/* 导入目录（R39 二阶段B 双来源）：未选时二选一——引用标准模板下拉 / 上传目录 Excel；
-                            已选显示来源芯片（模板=FolderTree 图标，Excel=表格图标点击重传）+「更换」回到二选一 */}
-                        <td className="px-2 py-1.5 text-center">
+                        {/* 导入目录（R44 胶囊分段控件）：未选时并排分段组「标准模板 ▾ ｜ 上传 Excel」——
+                            点「标准模板」单元格展开为模板下拉（可返回）；点「上传 Excel」直接调起文件选择；
+                            已选显示来源芯片（模板=FolderTree 图标，Excel=表格图标点击重传）+「更换」回到分段组 */}
+                        <td className="px-2 py-2.5 text-center">
                           {g.source === null ? (
-                            <div className="flex flex-col items-center gap-1.5">
-                              <select
-                                value=""
-                                onChange={(e) => e.target.value && applyTemplate(g.id, e.target.value)}
-                                disabled={state.treeTemplates.length === 0}
-                                title={state.treeTemplates.length === 0 ? '模板库为空（admin 端 NAMING 页维护）' : '从标准目录树模板库引用'}
-                                className="w-36 cursor-pointer rounded-md border border-gray-200 bg-white px-1.5 py-1 text-center text-xs text-teal-600 outline-none transition-colors hover:border-teal-300 focus:border-teal-500 disabled:cursor-not-allowed disabled:text-gray-300"
-                              >
-                                <option value="">
-                                  {state.treeTemplates.length === 0 ? '模板库为空' : '引用标准模板…'}
-                                </option>
-                                {state.treeTemplates.map((t) => (
-                                  <option key={t.id} value={t.id}>
-                                    {t.name}
-                                  </option>
-                                ))}
-                              </select>
-                              <button
-                                type="button"
-                                onClick={() => pickForGroup(g.id)}
-                                className="inline-flex items-center gap-1 text-xs text-teal-600 transition-colors hover:text-teal-700 hover:underline"
-                              >
-                                <Upload className="h-3.5 w-3.5" /> 上传目录
-                              </button>
-                            </div>
+                            tplPickerRow === g.id ? (
+                              /* 展开态：模板下拉（autoFocus 即开）+ 返回分段组 */
+                              <div className="flex items-center justify-center gap-1.5">
+                                <select
+                                  autoFocus
+                                  value=""
+                                  onChange={(e) => e.target.value && applyTemplate(g.id, e.target.value)}
+                                  title="从标准目录树模板库引用"
+                                  className="w-44 cursor-pointer rounded-full border border-teal-300 bg-white px-2.5 py-1.5 text-center text-xs text-teal-600 outline-none transition-colors focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                                >
+                                  <option value="">选择标准模板…</option>
+                                  {state.treeTemplates.map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                      {t.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  title="返回目录来源选择"
+                                  onClick={() => setTplPickerRow(null)}
+                                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-teal-600"
+                                >
+                                  <Undo2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              /* 未选：胶囊分段控件 */
+                              <div className="inline-flex items-center rounded-full bg-gray-100 p-0.5 ring-1 ring-gray-200/80">
+                                <button
+                                  type="button"
+                                  disabled={state.treeTemplates.length === 0}
+                                  title={state.treeTemplates.length === 0 ? '模板库为空（admin 端 NAMING 页维护）' : '引用标准目录树模板'}
+                                  onClick={() => setTplPickerRow(g.id)}
+                                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs text-gray-500 transition-all hover:bg-white hover:text-teal-600 hover:shadow-sm disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent disabled:hover:shadow-none"
+                                >
+                                  <FolderTree className="h-3.5 w-3.5" /> 标准模板
+                                  <ChevronDown className="h-3 w-3 opacity-60" />
+                                </button>
+                                <span className="h-3.5 w-px bg-gray-300/70" />
+                                <button
+                                  type="button"
+                                  title="上传目录 Excel"
+                                  onClick={() => pickForGroup(g.id)}
+                                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs text-gray-500 transition-all hover:bg-white hover:text-teal-600 hover:shadow-sm"
+                                >
+                                  <Upload className="h-3.5 w-3.5" /> 上传 Excel
+                                </button>
+                              </div>
+                            )
                           ) : (
                             <div className="flex min-w-0 items-center justify-center gap-1.5">
                               {g.source === 'template' ? (
@@ -953,7 +983,7 @@ export default function CatalogDialog({
                           )}
                         </td>
                         {/* 操作：预览/收起预览（未上传禁用）+ 删除 */}
-                        <td className="px-2 py-1.5 text-center">
+                        <td className="px-2 py-2.5 text-center">
                           <div className="flex items-center justify-center gap-2.5 whitespace-nowrap">
                             <button
                               type="button"
