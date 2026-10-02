@@ -888,6 +888,13 @@ export type Action =
   | { type: 'addTreeTemplate'; template: TreeTemplate }
   | { type: 'removeTreeTemplate'; id: string }
   | { type: 'setAiPrefill'; on: boolean }
+  /* ===== 收敛C1：PM TRANSFER 归档骨架确认制——一次性落命名六字段+审计+归档路由（镜像 archiveRouted） ===== */
+  | { type: 'confirmArchiveNaming'
+      patches: { id: string; name: string; displayFilename: string; originalFilename: string
+                 namingTemplateId: string; versionNo: string; docStatus: string; docType: string; targetFolderId: string }[]
+      logs: NamingLog[]
+      newFolders: TmfFile[]
+      entries: { id: string; folderId: string; parentId?: string }[] }
 
 /** 当前时间格式化为 YYYY-MM-DD HH:mm（登录日志用） */
 export function nowStr() {
@@ -1255,6 +1262,29 @@ function reducer(state: State, action: Action): State {
       return { ...state, treeTemplates: state.treeTemplates.filter((t) => t.id !== action.id) }
     case 'setAiPrefill':
       return { ...state, aiPrefill: action.on }
+    case 'confirmArchiveNaming': {
+      /* 收敛C1：PM TRANSFER 归档经骨架命名确认后原子落库——先合命名补丁，再按 entries 归档路由，同事务写审计 */
+      const patchById = new Map(action.patches.map((p) => [p.id, p]))
+      const entryById = new Map(action.entries.map((e) => [e.id, e]))
+      const files = [...state.files, ...action.newFolders].map((f) => {
+        const p = patchById.get(f.id)
+        const e = entryById.get(f.id)
+        let next = p
+          ? { ...f, name: p.name, displayFilename: p.displayFilename, originalFilename: p.originalFilename,
+              namingTemplateId: p.namingTemplateId, versionNo: p.versionNo, docStatus: p.docStatus,
+              docType: p.docType, targetFolderId: p.targetFolderId }
+          : f
+        if (e) next = { ...next, status: 'archived' as const, folderId: e.folderId, parentId: e.parentId, reason: undefined }
+        return next
+      })
+      const catIds = new Set(action.entries.map((e) => e.folderId))
+      const catalogs = state.catalogs.map((c) => {
+        if (!catIds.has(c.id)) return c
+        const inside = files.filter((f) => f.folderId === c.id && f.status === 'archived' && f.kind !== 'folder')
+        return { ...c, size: sumSizes(inside), updateDate: todayStr() }
+      })
+      return { ...state, files, catalogs, namingLogs: [...action.logs, ...state.namingLogs].slice(0, 2000) }
+    }
   }
 }
 

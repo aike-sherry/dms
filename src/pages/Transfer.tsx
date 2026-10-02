@@ -9,11 +9,13 @@ import UploadDialog from '@/components/UploadDialog'
 import SmartProcessDialog, { type SmartMode } from '@/components/SmartProcessDialog'
 import { ModalHeader } from '@/components/CatalogDialog'
 import NamingRuleDialog from '@/components/NamingRuleDialog'
+import ConfirmNamingDialog, { type NamingJobItem, type NamingJobResult } from '@/components/ConfirmNamingDialog'
 import { analyzeName, autoNameBatch, DOC_TYPE_NAMES, notifyAutoName, TMF_ZONES, UNSORTED_ZONE } from '@/lib/smartDoc'
-import { inUnsortedZone, planArchive, planRehome } from '@/lib/archiveRouter'
+import { inUnsortedZone, planArchive, planRehome, type ArchivePlan } from '@/lib/archiveRouter'
+import { effectiveTemplateRef } from '@/lib/namingSkeleton'
 import { readDroppedItems, type DroppedPayload } from '@/lib/dropItems'
 import { cn } from '@/lib/utils'
-import { useStore, statsByProject, nextId, todayStr, fmtSize, PM_USER, EXECUTOR_CENTER, type TmfFile } from '@/store'
+import { useStore, statsByProject, nextId, todayStr, nowStr, fmtSize, displayNameOf, PM_USER, EXECUTOR_CENTER, type TmfFile, type NamingLog } from '@/store'
 
 /* PM Transfer：上传跳过审核可直接归档（归档至对应项目编号的 STUDY TMF 目录）；
    支持新建文件夹 → 命名 → 打开 → 从本地上传文件到文件夹内 */
@@ -71,8 +73,13 @@ export default function Transfer() {
     [myFiles, openFolder],
   )
 
+  /* 收敛C1：归档命中骨架确认制时的待确认任务（plan 已算出，确认后一次性原子落库） */
+  const [namingJob, setNamingJob] = useState<{ plan: ArchivePlan; file: TmfFile; items: NamingJobItem[] } | null>(null)
+
   /* 归档：按「归档规则」把文件路由到该项目 STUDY TMF 的「分区 / 文档类型」文件夹（路由解析与落位见 archiveRouter）；
-     未识别文档类型或无匹配路由 → 99 待分拣；文件夹整体归档时子文件各自路由，文件夹本身归入目录根 */
+     未识别文档类型或无匹配路由 → 99 待分拣；文件夹整体归档时子文件各自路由，文件夹本身归入目录根。
+     收敛C1：落位目标文件夹已绑定（含继承）启用中骨架的文件，先弹命名确认（与 CRA 同款界面），确认后才落库+审计；
+     同批内未绑定骨架的文件不受影响，随同一事务按原路由归档 */
   const archive = (f: TmfFile) => {
     const children =
       f.kind === 'folder' ? myFiles.filter((x) => x.parentId === f.id && x.status !== 'archived') : []
@@ -88,18 +95,109 @@ export default function Transfer() {
       toast.error('未找到 STUDY TMF 目录', { description: '请先在 STUDY TMF 页创建目录后再归档' })
       return
     }
-    dispatch({ type: 'archiveRouted', newFolders: plan.newFolders, entries: plan.entries })
+    /* 按 plan 落位逐文件判定目标文件夹的有效骨架（目录根条目无 parentId，不参与判定）。
+       注意：pool 先套用 entries 的归档后 parentId/folderId——文件夹直通时子文件落位父级为传输文件夹，
+       其归档后才挂到目标文件夹下，骨架沿归档后链路继承判定才正确 */
+    const entryById = new Map(plan.entries.map((e) => [e.id, e]))
+    const pool = [...state.files, ...plan.newFolders].map((x) => {
+      const e = entryById.get(x.id)
+      return e ? { ...x, folderId: e.folderId, parentId: e.parentId } : x
+    })
+    const byId = new Map(pool.map((x) => [x.id, x]))
+    const items: NamingJobItem[] = []
+    for (const e of plan.entries) {
+      const file = byId.get(e.id)
+      if (!file || file.kind === 'folder' || !e.parentId) continue
+      const dest = byId.get(e.parentId)
+      if (!dest) continue
+      const eff = effectiveTemplateRef(pool, dest.id, state.namingTemplates)
+      if (eff && eff.template.status === '启用') {
+        items.push({
+          id: file.id,
+          from: file.name,
+          projectNo: file.projectNo,
+          center: file.center,
+          folderId: dest.id,
+          folderName: dest.name,
+          eff,
+        })
+      }
+    }
+    if (items.length > 0) {
+      setNamingJob({ plan, file: f, items })
+      return
+    }
+    finishArchive(plan, f)
+  }
 
+  /* 旧流程落库：无骨架确认命中时直接 archiveRouted */
+  const finishArchive = (plan: ArchivePlan, f: TmfFile) => {
+    dispatch({ type: 'archiveRouted', newFolders: plan.newFolders, entries: plan.entries })
+    archiveToasts(plan, f)
+  }
+
+  /* 归档结果提示（确认制与旧流程共用；extra 追加骨架确认说明） */
+  const archiveToasts = (plan: ArchivePlan, f: TmfFile, extra?: string) => {
     const okLines = [...plan.groups.entries()].map(([p, n]) => `已归档至 STUDY TMF / ${p}（${n} 个文件）`)
     /* R27 PM 选定目标文件夹直通：siteGroups 行同样展示（路径形如「研究者简历 / 2 个文件」） */
     okLines.push(...[...plan.siteGroups.entries()].map(([p, n]) => `已归档至 ${p}（${n} 个文件）`))
     if (f.kind === 'folder') okLines.unshift(`文件夹「${f.name}」已归档至 ${f.projectNo} 的 STUDY TMF 文件夹`)
+    if (extra) okLines.push(extra)
     if (okLines.length > 0) toast.success('归档成功', { description: okLines.join('；') })
     if (plan.unsorted > 0) {
       toast.warning(`${plan.unsorted} 个文件进入「99 待分拣」`, {
         description: '未识别文档类型或无匹配路由，已归档至 STUDY TMF / 99 待分拣，需人工分拣',
       })
     }
+  }
+
+  /* 收敛C1：命名确认回调——命名六字段 + 审计 + 归档路由 原子落库（confirmArchiveNaming） */
+  const confirmNaming = (results: NamingJobResult[]) => {
+    const job = namingJob
+    if (!job) return
+    const rById = new Map(results.map((r) => [r.id, r]))
+    const time = nowStr()
+    const srcOf = (id: string) => state.files.find((x) => x.id === id)
+    const patches = job.items.map((it) => {
+      const r = rById.get(it.id)!
+      const src = srcOf(it.id)
+      return {
+        id: it.id,
+        name: r.finalName,
+        displayFilename: r.finalName,
+        originalFilename: src?.originalFilename ?? src?.name ?? it.from,
+        namingTemplateId: it.eff.template.id,
+        versionNo: r.versionNo,
+        docStatus: r.docStatus,
+        docType: r.docType,
+        targetFolderId: it.folderId,
+      }
+    })
+    const logs: NamingLog[] = job.items.map((it) => {
+      const r = rById.get(it.id)!
+      const src = srcOf(it.id)
+      return {
+        id: nextId('nl'),
+        fileId: it.id,
+        operator: PM_USER.name,
+        time,
+        action: r.action,
+        oldValue: r.oldValue,
+        newValue: r.finalName,
+        projectNo: it.projectNo,
+        role: 'pm' as const,
+        originalFilename: src?.originalFilename ?? src?.name ?? it.from,
+      }
+    })
+    dispatch({
+      type: 'confirmArchiveNaming',
+      patches,
+      logs,
+      newFolders: job.plan.newFolders,
+      entries: job.plan.entries,
+    })
+    archiveToasts(job.plan, job.file, `${job.items.length} 个文件已按骨架确认命名（审计已记录）`)
+    setNamingJob(null)
   }
 
   /* ===== 99 待分拣队列：已归档但处于 99 分区的具体文件（文件夹不计，随全局项目筛选） ===== */
@@ -712,6 +810,26 @@ export default function Transfer() {
 
       {/* 命名规则配置弹窗：抽取为共享组件 NamingRuleDialog（目录创建弹窗「命名设置」同款） */}
       <NamingRuleDialog open={namingOpen} onOpenChange={setNamingOpen} />
+
+      {/* 收敛C1：归档命名确认弹窗——目标文件夹绑骨架时逐行确认命名（takenNames=目标文件夹内已归档展示名，排除本批自身） */}
+      <ConfirmNamingDialog
+        open={!!namingJob}
+        onOpenChange={(o) => !o && setNamingJob(null)}
+        title="归档命名确认"
+        confirmLabel="确认归档"
+        items={namingJob?.items ?? []}
+        takenNames={(fid) =>
+          state.files
+            .filter(
+              (f) =>
+                f.status === 'archived' &&
+                (f.parentId === fid || f.targetFolderId === fid) &&
+                !namingJob?.items.some((it) => it.id === f.id),
+            )
+            .map(displayNameOf)
+        }
+        onConfirm={confirmNaming}
+      />
 
       {/* 归档规则配置弹窗：文档类型 → STUDY TMF 分区 路由表（默认路由同样可编辑/删除） */}
       <Dialog open={rulesOpen} onOpenChange={setRulesOpen}>

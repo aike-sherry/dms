@@ -4,8 +4,10 @@ import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ModalHeader } from '@/components/common'
+import ConfirmNamingDialog, { type NamingJobItem, type NamingJobResult } from '@/components/ConfirmNamingDialog'
 import { cn } from '@/lib/utils'
-import { useStore, nextId, todayStr, fmtSize, PM_USER, type Catalog, type TmfFile } from '@/store'
+import { effectiveTemplateRef } from '@/lib/namingSkeleton'
+import { useStore, nextId, todayStr, nowStr, fmtSize, displayNameOf, PM_USER, type Catalog, type TmfFile, type NamingLog } from '@/store'
 import {
   analyzeName,
   applyNamingTemplate,
@@ -46,8 +48,14 @@ export default function TmfUploadDialog({
   const { state, dispatch } = useStore()
   const inputRef = useRef<HTMLInputElement>(null)
   const [pending, setPending] = useState<Pending[]>([])
+  /* 收敛C1：钻取上传骨架命名确认弹窗开关（currentFolder 绑定/继承启用中骨架时走确认制） */
+  const [namingOpen, setNamingOpen] = useState(false)
   const center = catalog.center ?? ''
   const targetName = currentFolder?.name ?? catalog.name
+
+  /* 收敛C1：当前文件夹的有效骨架（含继承，须启用中）；仅钻取到文件夹层级才可能有绑定 */
+  const boundEff = currentFolder ? effectiveTemplateRef(state.files, currentFolder.id, state.namingTemplates) : null
+  const bound = boundEff && boundEff.template.status === '启用' ? boundEff : null
 
   const options = useMemo(() => {
     const s = new Set(folderOptions.filter(Boolean))
@@ -106,6 +114,11 @@ export default function TmfUploadDialog({
 
   const confirm = () => {
     if (!validCount) return
+    /* 收敛C1：目标文件夹绑骨架 → 转骨架命名确认制（确认后才落库+审计），不再走模板自动命名直落 */
+    if (bound && currentFolder) {
+      setNamingOpen(true)
+      return
+    }
     const now = todayStr()
     const files: TmfFile[] = plan
       .filter((it) => it.chain)
@@ -132,12 +145,81 @@ export default function TmfUploadDialog({
     onOpenChange(false)
   }
 
+  /* 收敛C1：骨架命名确认回调——逐行六字段落库 + namingLogs 审计（操作人=PM、role='pm'） */
+  const confirmNaming = (results: NamingJobResult[]) => {
+    if (!bound || !currentFolder) return
+    const rById = new Map(results.map((r) => [r.id, r]))
+    const now = todayStr()
+    const time = nowStr()
+    const files: TmfFile[] = pending.map((p, i) => {
+      const r = rById.get(String(i))!
+      return {
+        id: nextId('f'),
+        name: r.finalName,
+        displayFilename: r.finalName,
+        originalFilename: p.file.name,
+        namingTemplateId: bound.template.id,
+        versionNo: r.versionNo,
+        docStatus: r.docStatus,
+        docType: r.docType,
+        targetFolderId: currentFolder.id,
+        kind: 'pdf' as const,
+        projectNo: catalog.projectNo,
+        center,
+        uploader: PM_USER.name,
+        uploadDate: now,
+        size: fmtSize(p.file.size),
+        status: 'archived' as const,
+        folderId: catalog.id,
+        parentId: currentFolder.id,
+      }
+    })
+    const logs: NamingLog[] = files.map((f, i) => {
+      const r = rById.get(String(i))!
+      return {
+        id: nextId('nl'),
+        fileId: f.id,
+        operator: PM_USER.name,
+        time,
+        action: r.action,
+        oldValue: r.oldValue,
+        newValue: r.finalName,
+        projectNo: catalog.projectNo,
+        role: 'pm' as const,
+        originalFilename: f.originalFilename,
+      }
+    })
+    dispatch({ type: 'addFiles', files })
+    dispatch({ type: 'addNamingLogs', logs })
+    toast.success(`已上传 ${files.length} 个文件到「${targetName}」`, {
+      description: '已按骨架确认命名，审计已记录',
+    })
+    setPending([])
+    setNamingOpen(false)
+    onOpenChange(false)
+  }
+
+  /* 收敛C1：确认弹窗条目（id=暂存序号，onConfirm 按 id 回传对应行） */
+  const namingItems: NamingJobItem[] =
+    bound && currentFolder
+      ? pending.map((p, i) => ({
+          id: String(i),
+          from: p.file.name,
+          projectNo: catalog.projectNo,
+          center,
+          folderId: currentFolder.id,
+          folderName: currentFolder.name,
+          eff: bound,
+        }))
+      : []
+
   const close = (o: boolean) => {
     if (!o) setPending([])
     onOpenChange(o)
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={close}>
       <DialogContent showCloseButton={false} className="gap-0 overflow-hidden rounded-2xl border-0 p-0 sm:max-w-3xl">
         <DialogTitle className="sr-only">上传文件到当前目录</DialogTitle>
@@ -150,6 +232,17 @@ export default function TmfUploadDialog({
             {center && <InfoBit label="研究中心" value={center} />}
             <InfoBit label="归档位置" value={currentFolder ? `${catalog.name} / ${currentFolder.name}` : catalog.name} />
           </div>
+
+          {/* 收敛C1：目标文件夹已绑定骨架——确认上传后逐行确认命名（落库+审计） */}
+          {bound && (
+            <div className="flex items-center gap-2 rounded-xl bg-teal-50 px-4 py-2.5 text-[12px] leading-5 text-teal-700 ring-1 ring-teal-100">
+              <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-teal-600 ring-1 ring-teal-100">
+                骨架·{bound.template.name}
+                {bound.inherited ? '（继承）' : ''}
+              </span>
+              目标文件夹已绑定命名骨架——点击「确认上传」后将逐行确认规范文件名，确认后才落库并写入命名审计
+            </div>
+          )}
 
           <input
             ref={inputRef}
@@ -187,25 +280,35 @@ export default function TmfUploadDialog({
                         <FileText className="h-4 w-4 shrink-0 text-teal-600" />
                         <span className="truncate text-[12.5px] font-medium text-gray-700">{it.p.file.name}</span>
                       </div>
-                      <select
-                        value={it.p.docType}
-                        onChange={(e) =>
-                          setPending((prev) => prev.map((q, j) => (j === i ? { ...q, docType: e.target.value } : q)))
-                        }
-                        className={cn(
-                          'w-44 shrink-0 rounded-lg border px-2 py-1.5 text-[12px] focus:border-teal-500 focus:outline-none',
-                          it.p.docType
-                            ? 'border-gray-200 text-gray-700'
-                            : 'border-amber-300 bg-amber-50 text-amber-600',
-                        )}
-                      >
-                        <option value="">选择文件夹…</option>
-                        {options.map((o) => (
-                          <option key={o} value={o}>
-                            {o}
-                          </option>
-                        ))}
-                      </select>
+                      {/* 收敛C1：绑骨架时文档类型列换为骨架 chip（类型在确认弹窗内按骨架限定选择） */}
+                      {bound ? (
+                        <span className="flex w-44 shrink-0 justify-center">
+                          <span className="rounded-full bg-teal-50 px-2 py-1 text-[11px] whitespace-nowrap text-teal-600 ring-1 ring-teal-100">
+                            骨架·{bound.template.name}
+                            {bound.inherited ? '（继承）' : ''}
+                          </span>
+                        </span>
+                      ) : (
+                        <select
+                          value={it.p.docType}
+                          onChange={(e) =>
+                            setPending((prev) => prev.map((q, j) => (j === i ? { ...q, docType: e.target.value } : q)))
+                          }
+                          className={cn(
+                            'w-44 shrink-0 rounded-lg border px-2 py-1.5 text-[12px] focus:border-teal-500 focus:outline-none',
+                            it.p.docType
+                              ? 'border-gray-200 text-gray-700'
+                              : 'border-amber-300 bg-amber-50 text-amber-600',
+                          )}
+                        >
+                          <option value="">选择文件夹…</option>
+                          {options.map((o) => (
+                            <option key={o} value={o}>
+                              {o}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                       <button
                         type="button"
                         onClick={() => setPending((prev) => prev.filter((_, j) => j !== i))}
@@ -214,7 +317,8 @@ export default function TmfUploadDialog({
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                    {it.chain && (
+                    {/* 收敛C1：绑骨架时命名预览由确认弹窗接管，此处不再展示模板自动命名预览 */}
+                    {!bound && it.chain && (
                       <div className="mt-1 truncate pl-6 text-[11px] text-teal-600">
                         → {it.name}
                         {it.chain.prevVersion && (
@@ -245,6 +349,22 @@ export default function TmfUploadDialog({
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* 收敛C1：上传命名确认弹窗——目标文件夹绑骨架时逐行确认（takenNames=文件夹内已归档展示名） */}
+    <ConfirmNamingDialog
+      open={namingOpen}
+      onOpenChange={setNamingOpen}
+      title="上传命名确认"
+      confirmLabel="确认上传"
+      items={namingItems}
+      takenNames={(fid) =>
+        state.files
+          .filter((f) => f.status === 'archived' && (f.parentId === fid || f.targetFolderId === fid))
+          .map(displayNameOf)
+      }
+      onConfirm={confirmNaming}
+    />
+    </>
   )
 }
 
