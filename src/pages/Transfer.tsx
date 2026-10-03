@@ -143,6 +143,10 @@ export default function Transfer() {
     /* R27 PM 选定目标文件夹直通：siteGroups 行同样展示（路径形如「研究者简历 / 2 个文件」） */
     okLines.push(...[...plan.siteGroups.entries()].map(([p, n]) => `已归档至 ${p}（${n} 个文件）`))
     if (f.kind === 'folder') okLines.unshift(`文件夹「${f.name}」已归档至 ${f.projectNo} 的 STUDY TMF 文件夹`)
+    /* C4：路由来源可追溯——本批有按业务字段路由的文件时附来源行（纯文件名解析批保持旧文案不变） */
+    if (plan.routeSources.docType > 0) {
+      okLines.push(`路由来源：业务字段 ${plan.routeSources.docType} 个 · 文件名解析 ${plan.routeSources.filenameParse} 个`)
+    }
     if (extra) okLines.push(extra)
     if (okLines.length > 0) toast.success('归档成功', { description: okLines.join('；') })
     if (plan.unsorted > 0) {

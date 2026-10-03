@@ -72,6 +72,10 @@ export default function Review({ onOpenPdf }: { onOpenPdf: (fileId: string) => v
     const siteLines = [...plan.siteGroups.entries()].map(([p, n]) => `已归档至 SITE TMF / ${p}（${n} 个文件）`)
     const allLines = [...siteLines, ...okLines]
     if (f.kind === 'folder') allLines.unshift(`文件夹「${f.name}」及子文件已归档`)
+    /* C4：路由来源行（仅本批有按业务字段路由时追加，纯文件名解析批保持旧文案） */
+    if (plan.routeSources.docType > 0) {
+      allLines.push(`路由来源：业务字段 ${plan.routeSources.docType} 个 · 文件名解析 ${plan.routeSources.filenameParse} 个`)
+    }
     if (allLines.length > 0) {
       toast.success('归档成功', { description: `${allLines.join('；')}，执行端列表同步移除` })
     }

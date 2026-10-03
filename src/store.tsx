@@ -45,6 +45,9 @@ export interface TmfFile {
   docStatus?: string
   /** 文档类型简称（独立业务字段，取自 docTypes 字典 code） */
   docType?: string
+  /** C4 归档路由来源：'docType'=按落库业务字段路由 / 'filenameParse'=analyzeName 文件名解析兜底。
+      归档落库时写入（targetFolderId 直通条目不写）；旧数据无此字段，向后兼容 */
+  routeSource?: 'docType' | 'filenameParse'
 }
 
 export interface Catalog {
@@ -839,7 +842,7 @@ export type Action =
   | { type: 'approveFile'; id: string }
   | { type: 'archiveFile'; id: string }
   /** PM TRANSFER 智能归档：按归档路由把文件归入 catalog/分区/文档类型 文件夹；分区文件夹不存在时随 newFolders 一并创建 */
-  | { type: 'archiveRouted'; newFolders: TmfFile[]; entries: { id: string; folderId: string; parentId?: string }[] }
+  | { type: 'archiveRouted'; newFolders: TmfFile[]; entries: { id: string; folderId: string; parentId?: string; routeSource?: 'docType' | 'filenameParse' }[] }
   | { type: 'addArchiveRoute'; route: ArchiveRoute }
   | { type: 'updateArchiveRoute'; id: string; patch: Partial<Omit<ArchiveRoute, 'id'>> }
   | { type: 'removeArchiveRoute'; id: string }
@@ -980,11 +983,15 @@ function reducer(state: State, action: Action): State {
       return { ...state, files, catalogs }
     }
     case 'archiveRouted': {
-      /* 智能归档：分区/文档类型文件夹随 newFolders 创建，entries 逐文件指定目标（子文件各自路由，不跟随父文件夹） */
+      /* 智能归档：分区/文档类型文件夹随 newFolders 创建，entries 逐文件指定目标（子文件各自路由，不跟随父文件夹）；
+         C4：entries 带 routeSource 时一并落库（路由来源追溯，直通条目无此字段保持不动） */
       const byId = new Map(action.entries.map((e) => [e.id, e]))
       const files = [...state.files, ...action.newFolders].map((f) => {
         const e = byId.get(f.id)
-        return e ? { ...f, status: 'archived' as const, folderId: e.folderId, parentId: e.parentId, reason: undefined } : f
+        return e
+          ? { ...f, status: 'archived' as const, folderId: e.folderId, parentId: e.parentId, reason: undefined,
+              ...(e.routeSource ? { routeSource: e.routeSource } : {}) }
+          : f
       })
       /* 同步更新目标目录的大小与更新日期（分区/文档类型文件夹为 folder 不计入大小） */
       const catIds = new Set(action.entries.map((e) => e.folderId))

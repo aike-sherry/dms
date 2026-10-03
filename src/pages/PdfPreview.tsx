@@ -98,7 +98,9 @@ export default function PdfPreview({ fileId, onBack }: { fileId: string; onBack:
       })
     } else {
       const path = [...plan.groups.keys()][0]
-      toast.success(title, { description: `已归档至 STUDY TMF / ${path}，执行端上传列表同步移除` })
+      /* C4：按业务字段路由时在结果提示中附来源（文件名解析兜底保持旧文案） */
+      const src = plan.routeSources.docType > 0 ? '（路由来源：业务字段）' : ''
+      toast.success(title, { description: `已归档至 STUDY TMF / ${path}${src}，执行端上传列表同步移除` })
     }
     return true
   }
