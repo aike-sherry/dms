@@ -13,6 +13,7 @@ import ConfirmNamingDialog, { type NamingJobItem, type NamingJobResult } from '@
 import { analyzeName, autoNameBatch, DOC_TYPE_NAMES, notifyAutoName, TMF_ZONES, UNSORTED_ZONE } from '@/lib/smartDoc'
 import { inUnsortedZone, planArchive, planRehome, type ArchivePlan } from '@/lib/archiveRouter'
 import { effectiveTemplateRef } from '@/lib/namingSkeleton'
+import { LEGACY_NAMING_ENTRY } from '@/lib/featureFlags'
 import { readDroppedItems, type DroppedPayload } from '@/lib/dropItems'
 import { cn } from '@/lib/utils'
 import { useStore, statsByProject, nextId, todayStr, nowStr, fmtSize, displayNameOf, PM_USER, EXECUTOR_CENTER, type TmfFile, type NamingLog } from '@/store'
@@ -508,9 +509,10 @@ export default function Transfer() {
             <Td>{f.size}</Td>
             <Td>{projectCell(f)}</Td>
             <Td>
-              {f.kind === 'folder' ? (
+              {f.kind === 'folder' || !LEGACY_NAMING_ENTRY ? (
                 <span className="text-xs text-gray-300">—</span>
               ) : (
+                /* C2：旧命名入口默认隐藏（LEGACY_NAMING_ENTRY=true 可回退） */
                 <span className="flex items-center gap-4">
                   <TealLink onClick={() => setSmart({ file: f, mode: 'rename' })}>智能命名</TealLink>
                   <TealLink onClick={() => setSmart({ file: f, mode: 'correct' })}>智能纠错</TealLink>
@@ -639,15 +641,18 @@ export default function Transfer() {
                 <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={() => setRulesOpen(true)}>
                   <Route className="h-3.5 w-3.5" /> 归档规则
                 </Button>
-                {/* 命名规则：CRA 上传确认命名与 PM 上传自动命名共用的文件名模板 */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1 text-xs"
-                  onClick={() => setNamingOpen(true)}
-                >
-                  <FilePenLine className="h-3.5 w-3.5" /> 命名规则
-                </Button>
+                {/* 命名规则：CRA 上传确认命名与 PM 上传自动命名共用的文件名模板；
+                    C2：旧命名入口默认隐藏（LEGACY_NAMING_ENTRY=true 可回退），NamingRuleDialog 组件保留 */}
+                {LEGACY_NAMING_ENTRY && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1 text-xs"
+                    onClick={() => setNamingOpen(true)}
+                  >
+                    <FilePenLine className="h-3.5 w-3.5" /> 命名规则
+                  </Button>
+                )}
                 {/* 99 待分拣队列：琥珀色徽标计数（为 0 时隐藏徽标，按钮仍可见） */}
                 <Button
                   variant="outline"
@@ -745,7 +750,8 @@ export default function Transfer() {
         autoPick={uploadPick}
         preset={uploadPreset}
       />
-      <SmartProcessDialog target={smart} onClose={() => setSmart(null)} />
+      {/* C2：旧智能命名/纠错弹窗默认不挂载（LEGACY_NAMING_ENTRY=true 可回退） */}
+      {LEGACY_NAMING_ENTRY && <SmartProcessDialog target={smart} onClose={() => setSmart(null)} />}
 
       {/* 99 待分拣队列弹窗：逐文件选择分区归位，全部归位完自动刷新计数 */}
       <Dialog open={unsortedOpen} onOpenChange={setUnsortedOpen}>
@@ -808,8 +814,9 @@ export default function Transfer() {
         </DialogContent>
       </Dialog>
 
-      {/* 命名规则配置弹窗：抽取为共享组件 NamingRuleDialog（目录创建弹窗「命名设置」同款） */}
-      <NamingRuleDialog open={namingOpen} onOpenChange={setNamingOpen} />
+      {/* 命名规则配置弹窗：抽取为共享组件 NamingRuleDialog（目录创建弹窗「命名设置」同款）；
+          C2：TRANSFER 入口已隐藏，挂载点同步隔离（LEGACY_NAMING_ENTRY=true 可回退） */}
+      {LEGACY_NAMING_ENTRY && <NamingRuleDialog open={namingOpen} onOpenChange={setNamingOpen} />}
 
       {/* 收敛C1：归档命名确认弹窗——目标文件夹绑骨架时逐行确认命名（takenNames=目标文件夹内已归档展示名，排除本批自身） */}
       <ConfirmNamingDialog
